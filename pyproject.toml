@@ -1,0 +1,16 @@
+[project]
+name = "v2-scene-rep"
+version = "0.1.0"
+description = "SMARTS-only modern Scene-Rep-Transformer"
+requires-python = ">=3.10"
+
+dependencies = [
+    "numpy",
+    "pyyaml",
+    "tqdm",
+    "torch",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["scene_rep*"]
