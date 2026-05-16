@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from scene_rep.models.actor import Actor
 from scene_rep.models.critic import Critic
 from scene_rep.models.mst_encoder import MSTEncoder
+from scene_rep.models.slt import SequentialLatentTransformer
+from scene_rep.training.augmentation import augment_observation
 
 
 class SACAgent(nn.Module):
@@ -28,25 +30,32 @@ class SACAgent(nn.Module):
 
         latent_dim = int(config["model"]["latent_dim"])
         action_dim = 2
+        self.slt_cfg = config["slt"]
+        self.slt_enabled = bool(self.slt_cfg.get("enabled", True))
 
-        # Main networks
         self.encoder = MSTEncoder(config)
         self.actor = Actor(latent_dim=latent_dim, action_dim=action_dim)
         self.critic1 = Critic(latent_dim=latent_dim, action_dim=action_dim)
         self.critic2 = Critic(latent_dim=latent_dim, action_dim=action_dim)
+        self.slt = SequentialLatentTransformer(
+            latent_dim=latent_dim,
+            action_dim=action_dim,
+            future_horizon=int(self.slt_cfg["future_horizon"]),
+            nhead=int(config["model"]["nhead"]),
+            dropout=float(config["model"]["dropout"]),
+            projector_dim=int(self.slt_cfg["projector_dim"]),
+            predictor_dim=int(self.slt_cfg["predictor_dim"]),
+        )
 
-        # Target networks
         self.target_encoder = deepcopy(self.encoder)
         self.target_critic1 = deepcopy(self.critic1)
         self.target_critic2 = deepcopy(self.critic2)
 
         self._freeze_targets()
 
-        # Entropy temperature
         self.log_alpha = torch.tensor(0.0, requires_grad=True)
         self.target_entropy = float(self.sac_cfg["target_entropy"])
 
-        # Optimizers
         self.encoder_optimizer = torch.optim.Adam(
             self.encoder.parameters(),
             lr=float(self.sac_cfg["critic_lr"]),
@@ -67,15 +76,21 @@ class SACAgent(nn.Module):
             lr=float(self.sac_cfg["alpha_lr"]),
         )
 
+        self.slt_optimizer = torch.optim.Adam(
+            list(self.encoder.parameters()) + list(self.slt.parameters()),
+            lr=float(self.slt_cfg["lr"]),
+        )
+
     @property
     def alpha(self) -> torch.Tensor:
         return self.log_alpha.exp()
 
-    # ------------------------------------------------------------------
-    # Action selection
-    # ------------------------------------------------------------------
     @torch.no_grad()
-    def act(self, obs: Dict[str, torch.Tensor], deterministic: bool = False) -> torch.Tensor:
+    def act(
+        self,
+        obs: Dict[str, torch.Tensor],
+        deterministic: bool = False,
+    ) -> torch.Tensor:
         latent = self.encoder(obs)
 
         if deterministic:
@@ -85,9 +100,6 @@ class SACAgent(nn.Module):
 
         return action
 
-    # ------------------------------------------------------------------
-    # Training update
-    # ------------------------------------------------------------------
     def update(self, batch: Dict[str, Any]) -> Dict[str, float]:
         obs = batch["obs"]
         next_obs = batch["next_obs"]
@@ -96,9 +108,6 @@ class SACAgent(nn.Module):
         rewards = batch["rewards"]
         dones = batch["dones"]
 
-        # ----------------------------
-        # Critic update
-        # ----------------------------
         latent = self.encoder(obs)
 
         q1 = self.critic1(latent, actions)
@@ -124,10 +133,6 @@ class SACAgent(nn.Module):
         self.encoder_optimizer.step()
         self.critic_optimizer.step()
 
-        # ----------------------------
-        # Actor update
-        # Stop encoder gradient for actor, as in the paper-style setup.
-        # ----------------------------
         with torch.no_grad():
             latent_detached = self.encoder(obs)
 
@@ -143,18 +148,14 @@ class SACAgent(nn.Module):
         actor_loss.backward()
         self.actor_optimizer.step()
 
-        # ----------------------------
-        # Alpha update
-        # ----------------------------
-        alpha_loss = -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        alpha_loss = -(
+            self.log_alpha * (log_prob + self.target_entropy).detach()
+        ).mean()
 
         self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
         self.alpha_optimizer.step()
 
-        # ----------------------------
-        # Target update
-        # ----------------------------
         self.soft_update_targets()
 
         return {
@@ -165,10 +166,55 @@ class SACAgent(nn.Module):
             "q1_mean": float(q1.detach().mean().cpu()),
             "q2_mean": float(q2.detach().mean().cpu()),
         }
+    
+    def update_slt(self, sequence_batch: Dict[str, torch.Tensor]) -> Dict[str, float]:
+            """
+            Update MST encoder + SLT using a batch of future sequences.
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+            sequence_batch shapes:
+                motion:     [B, T, A, H, Dm]
+                waypoints:  [B, T, A, R, W, Dw]
+                agent_mask: [B, T, A]
+                route_mask: [B, T, A, R]
+                actions:    [B, T, 2]
+            """
+            if not self.slt_enabled:
+                return {"slt_loss": 0.0}
+
+            motion = sequence_batch["motion"]
+            waypoints = sequence_batch["waypoints"]
+            agent_mask = sequence_batch["agent_mask"]
+            route_mask = sequence_batch["route_mask"]
+            actions = sequence_batch["actions"]
+
+            batch_size, seq_len = actions.shape[:2]
+
+            # Flatten time into batch so MST can encode each state.
+            obs = {
+                "motion": motion.reshape(batch_size * seq_len, *motion.shape[2:]),
+                "waypoints": waypoints.reshape(batch_size * seq_len, *waypoints.shape[2:]),
+                "agent_mask": agent_mask.reshape(batch_size * seq_len, *agent_mask.shape[2:]),
+                "route_mask": route_mask.reshape(batch_size * seq_len, *route_mask.shape[2:]),
+            }
+
+            obs = augment_observation(obs)
+
+            latents = self.encoder(obs)
+            latents = latents.reshape(batch_size, seq_len, -1)
+
+            loss, metrics = self.slt.compute_loss(
+                latents=latents,
+                actions=actions,
+            )
+
+            loss = float(self.slt_cfg.get("loss_weight", 1.0)) * loss
+
+            self.slt_optimizer.zero_grad()
+            loss.backward()
+            self.slt_optimizer.step()
+
+            return metrics
+
     def soft_update_targets(self) -> None:
         self._soft_update(self.encoder, self.target_encoder)
         self._soft_update(self.critic1, self.target_critic1)
@@ -180,6 +226,10 @@ class SACAgent(nn.Module):
             tgt_param.data.add_(self.tau * src_param.data)
 
     def _freeze_targets(self) -> None:
-        for net in [self.target_encoder, self.target_critic1, self.target_critic2]:
+        for net in [
+            self.target_encoder,
+            self.target_critic1,
+            self.target_critic2,
+        ]:
             for p in net.parameters():
                 p.requires_grad = False

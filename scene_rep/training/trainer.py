@@ -14,7 +14,8 @@ from scene_rep.utils.torch_utils import (
     get_device,
     obs_to_torch,
 )
-
+from scene_rep.training.checkpointing import save_checkpoint
+from scene_rep.utils.seed import set_seed
 
 class Trainer:
     """
@@ -28,6 +29,7 @@ class Trainer:
         self.config = config
 
         self.project_cfg = config["project"]
+        set_seed(int(self.project_cfg["seed"]))
         self.training_cfg = config["training"]
         self.sac_cfg = config["sac"]
 
@@ -40,6 +42,8 @@ class Trainer:
         self.total_steps = int(self.training_cfg["total_steps"])
         self.warmup_steps = int(self.sac_cfg["warmup_steps"])
         self.log_every_steps = int(self.training_cfg["log_every_steps"])
+        self.save_every_steps = int(self.training_cfg["save_every_steps"])
+        self.checkpoint_dir = str(self.training_cfg["checkpoint_dir"])
 
     def train(self) -> None:
         obs = self.env.reset()
@@ -107,3 +111,17 @@ class Trainer:
                         "actor": round(last_metrics.get("actor_loss", 0.0), 4),
                     }
                 )
+
+            # --------------------------------------------------------
+            # Checkpointing
+            # --------------------------------------------------------
+            if step % self.save_every_steps == 0:
+                path = save_checkpoint(
+                    agent=self.agent,
+                    step=step,
+                    checkpoint_dir=self.checkpoint_dir,
+                    extra={"last_metrics": last_metrics},
+                )
+                print(f"\nSaved checkpoint: {path}")
+
+

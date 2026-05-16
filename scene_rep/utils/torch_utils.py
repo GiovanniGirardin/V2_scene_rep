@@ -71,3 +71,25 @@ def action_to_numpy(action: torch.Tensor) -> np.ndarray:
         action = action.squeeze(0)
 
     return action.numpy().astype(np.float32)
+
+def sequence_batch_to_torch(
+    batch: Dict[str, np.ndarray],
+    device: torch.device,
+) -> Dict[str, torch.Tensor]:
+    """
+    Convert SLT sequence batch from numpy to torch.
+
+    Input shapes:
+        motion:     [B, T, A, H, Dm]
+        waypoints:  [B, T, A, R, W, Dw]
+        agent_mask: [B, T, A]
+        route_mask: [B, T, A, R]
+        actions:    [B, T, 2]
+    """
+    return {
+        "motion": torch.tensor(batch["motion"], dtype=torch.float32, device=device),
+        "waypoints": torch.tensor(batch["waypoints"], dtype=torch.float32, device=device),
+        "agent_mask": torch.tensor(batch["agent_mask"], dtype=torch.float32, device=device),
+        "route_mask": torch.tensor(batch["route_mask"], dtype=torch.float32, device=device),
+        "actions": torch.tensor(batch["actions"], dtype=torch.float32, device=device),
+    }

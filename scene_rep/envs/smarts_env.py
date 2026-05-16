@@ -4,152 +4,129 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 
-
 from scene_rep.envs.action_adapter import ActionAdapter
 from scene_rep.envs.observation_adapter import ObservationAdapter
 
 
 class SMARTSSceneRepEnv:
     """
-    Minimal SMARTS wrapper for the Scene-Rep-Transformer project.
+    SMARTS wrapper for the Scene-Rep-Transformer project.
 
-    For now this class defines the interface we want:
+    It supports two modes:
 
-        reset() -> observation
-        step(action) -> observation, reward, done, info
+    1. Dummy mode:
+        use_dummy: true
 
-    Later we will connect it to the real SMARTS simulator.
+        Used while developing the learning pipeline.
+
+    2. SMARTS mode:
+        use_dummy: false
+
+        Later this connects to the real SMARTS simulator.
     """
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 
         self.smarts_cfg = config["smarts"]
-        self.obs_cfg = config["observation"]
         self.reward_cfg = config["reward"]
+
+        self.use_dummy = bool(self.smarts_cfg.get("use_dummy", True))
 
         self.action_adapter = ActionAdapter(config)
         self.observation_adapter = ObservationAdapter(config)
 
         self.step_count = 0
-        self.max_episode_steps = self.smarts_cfg["max_episode_steps"]
+        self.max_episode_steps = int(self.smarts_cfg["max_episode_steps"])
 
-        self.history_len = self.obs_cfg["history_len"]
-        self.max_neighbors = self.obs_cfg["max_neighbors"]
-        self.num_agents = self.max_neighbors + 1  # ego + neighbors
+        self._smarts_env = None
 
-        self.max_candidate_routes = self.obs_cfg["max_candidate_routes"]
-        self.waypoint_len = self.obs_cfg["waypoint_len"]
+        if not self.use_dummy:
+            self._init_smarts()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
     def reset(self) -> Dict[str, np.ndarray]:
-        """
-        Reset the environment.
-
-        Returns
-        -------
-        observation:
-            {
-                "motion": np.ndarray [num_agents, history_len, 5],
-                "waypoints": np.ndarray [num_agents, max_routes, waypoint_len, 3],
-                "agent_mask": np.ndarray [num_agents],
-                "route_mask": np.ndarray [num_agents, max_routes],
-            }
-        """
         self.step_count = 0
         self.observation_adapter.reset()
-        return self.observation_adapter.adapt(raw_obs=None)
+
+        if self.use_dummy:
+            raw_obs = None
+        else:
+            raw_obs = self._reset_smarts()
+
+        return self.observation_adapter.adapt(raw_obs)
 
     def step(
         self,
         action: Tuple[float, float],
     ) -> Tuple[Dict[str, np.ndarray], float, bool, Dict[str, Any]]:
-        """
-        Step the environment using a policy action.
-
-        Parameters
-        ----------
-        action:
-            Tuple from the policy:
-                speed_norm in [-1, 1]
-                lane_raw in [-1, 1]
-
-        Returns
-        -------
-        observation, reward, done, info
-        """
         self.step_count += 1
 
         smarts_action = self.action_adapter.adapt(action)
 
-        observation = self.observation_adapter.adapt(raw_obs=None)
-        reward = self._compute_dummy_reward()
-        done = self.step_count >= self.max_episode_steps
+        if self.use_dummy:
+            raw_obs, reward, done, info = self._dummy_step(smarts_action)
+        else:
+            raw_obs, reward, done, info = self._step_smarts(smarts_action)
 
-        info = {
-            "smarts_action": smarts_action,
-            "step_count": self.step_count,
-            "success": False,
-            "collision": False,
-            "off_route": False,
-        }
+        observation = self.observation_adapter.adapt(raw_obs)
+
+        if self.step_count >= self.max_episode_steps:
+            done = True
+            info["stagnation"] = True
+
+        info["smarts_action"] = smarts_action
+        info["step_count"] = self.step_count
 
         return observation, reward, done, info
 
+    def close(self) -> None:
+        if self._smarts_env is not None:
+            self._smarts_env.close()
+
     # ------------------------------------------------------------------
-    # Temporary placeholder logic
+    # Dummy mode
     # ------------------------------------------------------------------
-    def _dummy_observation(self) -> Dict[str, np.ndarray]:
-        """
-        Temporary fake observation.
+    def _dummy_step(self, smarts_action: Dict[str, Any]):
+        reward = 0.0
+        done = False
 
-        This lets us develop the model, replay buffer, and trainer before
-        fighting with SMARTS API details.
-        """
-        motion = np.zeros(
-            (self.num_agents, self.history_len, 5),
-            dtype=np.float32,
-        )
-
-        waypoints = np.zeros(
-            (
-                self.num_agents,
-                self.max_candidate_routes,
-                self.waypoint_len,
-                3,
-            ),
-            dtype=np.float32,
-        )
-
-        agent_mask = np.zeros((self.num_agents,), dtype=np.float32)
-        route_mask = np.zeros(
-            (self.num_agents, self.max_candidate_routes),
-            dtype=np.float32,
-        )
-
-        # Ego is always present.
-        agent_mask[0] = 1.0
-
-        # Give ego one valid dummy route for now.
-        route_mask[0, 0] = 1.0
-
-        return {
-            "motion": motion,
-            "waypoints": waypoints,
-            "agent_mask": agent_mask,
-            "route_mask": route_mask,
+        info = {
+            "success": False,
+            "collision": False,
+            "off_route": False,
+            "stagnation": False,
         }
 
-    def _compute_dummy_reward(self) -> float:
-        """
-        Temporary reward.
+        return None, reward, done, info
 
-        Later this will use SMARTS events:
-            - reached goal
-            - collision
-            - off road/off route
-            - timeout
+    # ------------------------------------------------------------------
+    # SMARTS mode placeholders
+    # ------------------------------------------------------------------
+    def _init_smarts(self) -> None:
         """
-        return 0.0
+        Initialize real SMARTS environment.
+
+        We keep this isolated so import errors are easy to understand.
+        """
+        try:
+            import smarts  # noqa: F401
+        except ImportError as exc:
+            raise ImportError(
+                "SMARTS is not installed or not available in this Python environment.\n"
+                "For now, keep `smarts.use_dummy: true` in configs/default.yaml.\n"
+                "Later, install SMARTS and set `smarts.use_dummy: false`."
+            ) from exc
+
+        raise NotImplementedError(
+            "SMARTS real environment initialization is not implemented yet. "
+            "Keep `smarts.use_dummy: true` for now."
+        )
+
+    def _reset_smarts(self):
+        raise NotImplementedError
+
+    def _step_smarts(self, smarts_action: Dict[str, Any]):
+        raise NotImplementedError
