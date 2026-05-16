@@ -75,23 +75,30 @@ class ObservationAdapter:
     # Motion
     # ------------------------------------------------------------------
     def _extract_current_motion(self, raw_obs: Dict[str, Any] | None) -> np.ndarray:
-        """
-        Extract current agent states.
-
-        Shape:
-            [num_agents, 5]
-        """
         current = np.zeros(
             (self.num_agents, self.motion_dim),
             dtype=np.float32,
         )
 
-        # Placeholder:
-        # ego exists at origin with zero velocity.
-        current[0] = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+        if raw_obs is None:
+            current[0] = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+            return current
+
+        ego = raw_obs["ego"]
+
+        current[0] = np.array(
+            [
+                float(ego["x"]),
+                float(ego["y"]),
+                float(ego["vx"]),
+                float(ego["vy"]),
+                float(ego["heading"]),
+            ],
+            dtype=np.float32,
+        )
 
         return current
-
+    
     def _build_motion_history(self) -> np.ndarray:
         """
         Build fixed-length history tensor.
@@ -133,16 +140,6 @@ class ObservationAdapter:
         self,
         raw_obs: Dict[str, Any] | None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Build candidate route waypoint tensor.
-
-        Shape:
-            waypoints:
-                [num_agents, max_candidate_routes, waypoint_len, 3]
-
-            route_mask:
-                [num_agents, max_candidate_routes]
-        """
         waypoints = np.zeros(
             (
                 self.num_agents,
@@ -158,12 +155,19 @@ class ObservationAdapter:
             dtype=np.float32,
         )
 
-        # Placeholder ego route: straight line along x.
-        for t in range(self.waypoint_len):
-            waypoints[0, 0, t, 0] = float(t)
-            waypoints[0, 0, t, 1] = 0.0
-            waypoints[0, 0, t, 2] = 0.0
+        if raw_obs is None:
+            ego_x = 0.0
+            ego_y = 0.0
+        else:
+            ego_x = float(raw_obs["ego"]["x"])
+            ego_y = float(raw_obs["ego"]["y"])
 
-        route_mask[0, 0] = 1.0
+        for r, lane_offset in enumerate([0.0, -3.5, 3.5][: self.max_candidate_routes]):
+            for t in range(self.waypoint_len):
+                waypoints[0, r, t, 0] = ego_x + float(t + 1)
+                waypoints[0, r, t, 1] = ego_y + lane_offset
+                waypoints[0, r, t, 2] = 0.0
+
+            route_mask[0, r] = 1.0
 
         return waypoints, route_mask

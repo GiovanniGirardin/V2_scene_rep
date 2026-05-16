@@ -5,38 +5,47 @@ from typing import Any, Dict
 import numpy as np
 from tqdm import tqdm
 
+from scene_rep.data.future_queue import FutureQueue
 from scene_rep.data.replay_buffer import ReplayBuffer
+from scene_rep.data.sequence_buffer import SequenceBuffer
 from scene_rep.envs.smarts_env import SMARTSSceneRepEnv
 from scene_rep.models.sac import SACAgent
+from scene_rep.training.checkpointing import save_checkpoint
+from scene_rep.utils.seed import set_seed
 from scene_rep.utils.torch_utils import (
     action_to_numpy,
     batch_to_torch,
     get_device,
     obs_to_torch,
+    sequence_batch_to_torch,
 )
-from scene_rep.training.checkpointing import save_checkpoint
-from scene_rep.utils.seed import set_seed
+
 
 class Trainer:
     """
-    First training loop skeleton.
-
-    For now it trains on the dummy SMARTS wrapper.
-    Later we will connect the wrapper to the real SMARTS simulator.
+    Training loop for:
+        MST encoder + SAC
+        optional SLT auxiliary representation learning
     """
 
     def __init__(self, config: Dict[str, Any]):
         self.config = config
 
         self.project_cfg = config["project"]
-        set_seed(int(self.project_cfg["seed"]))
         self.training_cfg = config["training"]
         self.sac_cfg = config["sac"]
+        self.slt_cfg = config["slt"]
+
+        set_seed(int(self.project_cfg["seed"]))
 
         self.device = get_device(self.project_cfg["device"])
 
         self.env = SMARTSSceneRepEnv(config)
+
         self.buffer = ReplayBuffer(config)
+        self.future_queue = FutureQueue(config)
+        self.sequence_buffer = SequenceBuffer(config)
+
         self.agent = SACAgent(config).to(self.device)
 
         self.total_steps = int(self.training_cfg["total_steps"])
@@ -45,10 +54,15 @@ class Trainer:
         self.save_every_steps = int(self.training_cfg["save_every_steps"])
         self.checkpoint_dir = str(self.training_cfg["checkpoint_dir"])
 
+        self.slt_enabled = bool(self.slt_cfg.get("enabled", True))
+        self.slt_updates_per_step = int(self.slt_cfg.get("updates_per_step", 1))
+
     def train(self) -> None:
         obs = self.env.reset()
+        self.future_queue.reset()
 
         last_metrics: Dict[str, float] = {}
+        last_slt_metrics: Dict[str, float] = {}
 
         progress = tqdm(range(1, self.total_steps + 1), desc="Training")
 
@@ -72,6 +86,16 @@ class Trainer:
                 action = action_to_numpy(action_torch)
 
             # --------------------------------------------------------
+            # Store current state-action for SLT sequence construction
+            # --------------------------------------------------------
+            if self.slt_enabled:
+                self.future_queue.add(obs=obs, action=action)
+
+                if self.future_queue.is_ready():
+                    sequence = self.future_queue.get_sequence()
+                    self.sequence_buffer.add(sequence)
+
+            # --------------------------------------------------------
             # Environment step
             # --------------------------------------------------------
             next_obs, reward, done, info = self.env.step(tuple(action))
@@ -88,6 +112,7 @@ class Trainer:
 
             if done:
                 obs = self.env.reset()
+                self.future_queue.reset()
 
             # --------------------------------------------------------
             # SAC update
@@ -99,16 +124,31 @@ class Trainer:
                     last_metrics = self.agent.update(batch)
 
             # --------------------------------------------------------
+            # SLT auxiliary update
+            # --------------------------------------------------------
+            if (
+                self.slt_enabled
+                and step >= self.warmup_steps
+                and self.sequence_buffer.can_sample()
+            ):
+                for _ in range(self.slt_updates_per_step):
+                    seq_np = self.sequence_buffer.sample()
+                    seq_batch = sequence_batch_to_torch(seq_np, device=self.device)
+                    last_slt_metrics = self.agent.update_slt(seq_batch)
+
+            # --------------------------------------------------------
             # Logging
             # --------------------------------------------------------
             if step % self.log_every_steps == 0:
                 progress.set_postfix(
                     {
                         "buffer": len(self.buffer),
+                        "seq": len(self.sequence_buffer),
                         "reward": reward,
                         "alpha": round(last_metrics.get("alpha", 0.0), 4),
                         "critic": round(last_metrics.get("critic_loss", 0.0), 4),
                         "actor": round(last_metrics.get("actor_loss", 0.0), 4),
+                        "slt": round(last_slt_metrics.get("slt_loss", 0.0), 4),
                     }
                 )
 
@@ -120,8 +160,9 @@ class Trainer:
                     agent=self.agent,
                     step=step,
                     checkpoint_dir=self.checkpoint_dir,
-                    extra={"last_metrics": last_metrics},
+                    extra={
+                        "last_metrics": last_metrics,
+                        "last_slt_metrics": last_slt_metrics,
+                    },
                 )
                 print(f"\nSaved checkpoint: {path}")
-
-
