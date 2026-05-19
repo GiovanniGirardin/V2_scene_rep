@@ -81,21 +81,74 @@ class ObservationAdapter:
         )
 
         if raw_obs is None:
-            current[0] = np.array([0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
             return current
 
-        ego = raw_obs["ego"]
+        # Dummy mode
+        if "ego" in raw_obs:
+            ego = raw_obs["ego"]
+
+            current[0] = np.array(
+                [
+                    ego["x"],
+                    ego["y"],
+                    ego["vx"],
+                    ego["vy"],
+                    ego["heading"],
+                ],
+                dtype=np.float32,
+            )
+
+            neighbors = raw_obs.get("neighbors", [])
+
+            for i, neighbor in enumerate(neighbors[: self.max_neighbors]):
+                current[i + 1] = np.array(
+                    [
+                        neighbor["x"],
+                        neighbor["y"],
+                        neighbor["vx"],
+                        neighbor["vy"],
+                        neighbor["heading"],
+                    ],
+                    dtype=np.float32,
+                )
+
+            return current
+
+        # Real SMARTS mode
+        smarts_obs = raw_obs["obs"]
+
+        ego_state = smarts_obs.ego_vehicle_state
+
+        ego_pos = ego_state.position
+        ego_vel = ego_state.linear_velocity
 
         current[0] = np.array(
             [
-                float(ego["x"]),
-                float(ego["y"]),
-                float(ego["vx"]),
-                float(ego["vy"]),
-                float(ego["heading"]),
+                float(ego_pos[0]),
+                float(ego_pos[1]),
+                float(ego_vel[0]),
+                float(ego_vel[1]),
+                float(ego_state.heading),
             ],
             dtype=np.float32,
         )
+
+        neighbors = getattr(smarts_obs, "neighborhood_vehicle_states", [])
+
+        for i, vehicle in enumerate(neighbors[: self.max_neighbors]):
+            pos = vehicle.position
+            vel = vehicle.linear_velocity
+
+            current[i + 1] = np.array(
+                [
+                    float(pos[0]),
+                    float(pos[1]),
+                    float(vel[0]),
+                    float(vel[1]),
+                    float(vehicle.heading),
+                ],
+                dtype=np.float32,
+            )
 
         return current
     
@@ -156,18 +209,62 @@ class ObservationAdapter:
         )
 
         if raw_obs is None:
-            ego_x = 0.0
-            ego_y = 0.0
-        else:
-            ego_x = float(raw_obs["ego"]["x"])
-            ego_y = float(raw_obs["ego"]["y"])
+            return waypoints, route_mask
 
-        for r, lane_offset in enumerate([0.0, -3.5, 3.5][: self.max_candidate_routes]):
+        # Dummy mode
+        if "ego" in raw_obs:
+            agents = [raw_obs["ego"]] + raw_obs.get("neighbors", [])[: self.max_neighbors]
+
+            for agent_idx, agent in enumerate(agents):
+                base_x = float(agent["x"])
+                base_y = float(agent["y"])
+                heading = float(agent["heading"])
+
+                candidate_offsets = [0.0, -3.5, 3.5]
+
+                for route_idx, lane_offset in enumerate(
+                    candidate_offsets[: self.max_candidate_routes]
+                ):
+                    for t in range(self.waypoint_len):
+                        waypoints[agent_idx, route_idx, t, 0] = base_x + float(t + 1)
+                        waypoints[agent_idx, route_idx, t, 1] = base_y + lane_offset
+                        waypoints[agent_idx, route_idx, t, 2] = heading
+
+                    route_mask[agent_idx, route_idx] = 1.0
+
+            return waypoints, route_mask
+
+        # Real SMARTS mode
+        smarts_obs = raw_obs["obs"]
+
+        waypoint_paths = getattr(smarts_obs, "waypoint_paths", [])
+
+        for route_idx, path in enumerate(waypoint_paths[: self.max_candidate_routes]):
+            for t, wp in enumerate(path[: self.waypoint_len]):
+                pos = wp.pos
+
+                waypoints[0, route_idx, t, 0] = float(pos[0])
+                waypoints[0, route_idx, t, 1] = float(pos[1])
+                waypoints[0, route_idx, t, 2] = float(wp.heading)
+
+            route_mask[0, route_idx] = 1.0
+
+        # For neighbors, use simple forward pseudo-waypoints from their current state.
+        neighbors = getattr(smarts_obs, "neighborhood_vehicle_states", [])
+
+        for i, vehicle in enumerate(neighbors[: self.max_neighbors]):
+            agent_idx = i + 1
+            pos = vehicle.position
+            heading = float(vehicle.heading)
+
+            dx = np.cos(heading)
+            dy = np.sin(heading)
+
             for t in range(self.waypoint_len):
-                waypoints[0, r, t, 0] = ego_x + float(t + 1)
-                waypoints[0, r, t, 1] = ego_y + lane_offset
-                waypoints[0, r, t, 2] = 0.0
+                waypoints[agent_idx, 0, t, 0] = float(pos[0]) + dx * float(t + 1)
+                waypoints[agent_idx, 0, t, 1] = float(pos[1]) + dy * float(t + 1)
+                waypoints[agent_idx, 0, t, 2] = heading
 
-            route_mask[0, r] = 1.0
+            route_mask[agent_idx, 0] = 1.0
 
         return waypoints, route_mask
