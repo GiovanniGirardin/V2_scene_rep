@@ -133,19 +133,23 @@ class ObservationAdapter:
             dtype=np.float32,
         )
 
-        neighbors = getattr(smarts_obs, "neighborhood_vehicle_states", [])
+        neighbors = self._get_sorted_neighbors(smarts_obs)
 
         for i, vehicle in enumerate(neighbors[: self.max_neighbors]):
             pos = vehicle.position
-            vel = vehicle.linear_velocity
+            speed = float(getattr(vehicle, "speed", 0.0))
+            heading = float(vehicle.heading)
+
+            vx = speed * np.cos(heading)
+            vy = speed * np.sin(heading)
 
             current[i + 1] = np.array(
                 [
                     float(pos[0]),
                     float(pos[1]),
-                    float(vel[0]),
-                    float(vel[1]),
-                    float(vehicle.heading),
+                    float(vx),
+                    float(vy),
+                    heading,
                 ],
                 dtype=np.float32,
             )
@@ -175,15 +179,10 @@ class ObservationAdapter:
         return motion
 
     def _build_agent_mask(self, current_motion: np.ndarray) -> np.ndarray:
-        """
-        Valid agent mask.
-
-        For now only ego is valid.
-        Later:
-            ego + detected neighbors.
-        """
         mask = np.zeros((self.num_agents,), dtype=np.float32)
-        mask[0] = 1.0
+        for i in range(self.num_agents):
+            if i == 0 or np.any(current_motion[i] != 0.0):
+                mask[i] = 1.0
         return mask
 
     # ------------------------------------------------------------------
@@ -250,7 +249,7 @@ class ObservationAdapter:
             route_mask[0, route_idx] = 1.0
 
         # For neighbors, use simple forward pseudo-waypoints from their current state.
-        neighbors = getattr(smarts_obs, "neighborhood_vehicle_states", [])
+        neighbors = self._get_sorted_neighbors(smarts_obs)
 
         for i, vehicle in enumerate(neighbors[: self.max_neighbors]):
             agent_idx = i + 1
@@ -268,3 +267,16 @@ class ObservationAdapter:
             route_mask[agent_idx, 0] = 1.0
 
         return waypoints, route_mask
+
+    def _get_sorted_neighbors(self, smarts_obs):
+        ego_pos = smarts_obs.ego_vehicle_state.position
+        neighbors = list(getattr(smarts_obs, "neighborhood_vehicle_states", []))
+
+        neighbors.sort(
+            key=lambda v: np.linalg.norm(
+                np.array(v.position[:2], dtype=np.float32)
+                - np.array(ego_pos[:2], dtype=np.float32)
+            )
+        )
+
+        return neighbors[: self.max_neighbors]

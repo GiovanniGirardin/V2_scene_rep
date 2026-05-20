@@ -9,7 +9,7 @@ from scene_rep.envs.observation_adapter import ObservationAdapter
 
 import gymnasium as gym
 
-from smarts.core.agent_interface import AgentInterface, AgentType
+from smarts.core.agent_interface import AgentInterface, AgentType, NeighborhoodVehicles
 
 
 class SMARTSSceneRepEnv:
@@ -44,6 +44,8 @@ class SMARTSSceneRepEnv:
         self.max_episode_steps = int(self.smarts_cfg["max_episode_steps"])
 
         self._smarts_env = None
+        self.prev_distance_travelled = 0.0
+        self.prev_ego_xy = None
 
         if not self.use_dummy:
             self._init_smarts()
@@ -53,7 +55,9 @@ class SMARTSSceneRepEnv:
     # ------------------------------------------------------------------
     def reset(self) -> Dict[str, np.ndarray]:
         self.step_count = 0
+        self.prev_distance_travelled = 0.0
         self.observation_adapter.reset()
+        self.prev_ego_xy = None
 
         if self.use_dummy:
             raw_obs = None
@@ -76,6 +80,14 @@ class SMARTSSceneRepEnv:
             raw_obs, reward, done, info = self._step_smarts(smarts_action)
 
         observation = self.observation_adapter.adapt(raw_obs)
+
+        #print(
+        #    "[obs debug]",
+         #   "motion", observation["motion"].shape,
+          #  "waypoints", observation["waypoints"].shape,
+           # "agent_mask", observation["agent_mask"],
+            #"route_mask", observation["route_mask"][0],
+        #)
 
         if self.step_count >= self.max_episode_steps:
             done = True
@@ -118,10 +130,11 @@ class SMARTSSceneRepEnv:
 
         agent_interfaces = {
             self.agent_id: AgentInterface.from_type(
-                agent_type,
-                max_episode_steps=self.max_episode_steps,
-            )
-        }
+            agent_type,
+            max_episode_steps=self.max_episode_steps,
+            neighborhood_vehicle_states=NeighborhoodVehicles(radius=50),
+        )
+                }
 
         self._smarts_env = gym.make(
             "smarts.env:hiway-v1",
@@ -147,10 +160,14 @@ class SMARTSSceneRepEnv:
         lane_change = int(smarts_action["lane_change"])
 
         # SMARTS LaneWithContinuousSpeed action:
-        # usually [lane_change, target_speed]
+        # usually [speed, lane_change]
         # lane_change: -1, 0, 1
         # speed: m/s
-        action_value = (np.float32(speed), np.int8(lane_change))
+        action_value = (
+            np.float32(speed),
+            np.int8(lane_change),
+        )
+
         action = {self.agent_id: action_value}
 
         obs, reward, terminated, truncated, info = self._smarts_env.step(action)
@@ -158,23 +175,32 @@ class SMARTSSceneRepEnv:
         agent_info = info.get(self.agent_id, {})
         agent_obs = agent_info.get("env_obs", obs.get(self.agent_id))
 
+        ego_state = agent_obs.ego_vehicle_state
+        ego_pos = ego_state.position
+        ego_xy = np.array([float(ego_pos[0]), float(ego_pos[1])], dtype=np.float32)
+
+        if self.prev_ego_xy is None:
+            progress = 0.0
+        else:
+            progress = float(np.linalg.norm(ego_xy - self.prev_ego_xy))
+
+        self.prev_ego_xy = ego_xy
+
         agent_terminated = bool(terminated[self.agent_id])
         agent_truncated = bool(truncated[self.agent_id])
         done = agent_terminated or agent_truncated
 
-        events = agent_info.get("env_obs").events if "env_obs" in agent_info else None
-
-        success = bool(events.reached_goal) if events is not None else False
+        events = getattr(agent_obs, "events", None)
 
         distance_travelled = 0.0
         
         if agent_obs is not None and hasattr(agent_obs, "distance_travelled"):
             distance_travelled = float(agent_obs.distance_travelled)
+        
+        progress = distance_travelled - self.prev_distance_travelled
+        self.prev_distance_travelled = distance_travelled
 
-        custom_success_distance = float(self.reward_cfg.get("custom_success_distance", 0.0))
-        if custom_success_distance > 0.0 and distance_travelled >= custom_success_distance:
-            success = True
-            done = True
+        success = bool(events.reached_goal) if events is not None else False
 
         collision = bool(events.collisions) if events is not None else False
         off_route = bool(events.off_route) if events is not None else False
@@ -205,7 +231,7 @@ class SMARTSSceneRepEnv:
 
         elif reward_mode == "progress":
             agent_reward = 0.0
-            agent_reward += 0.01 * distance_travelled
+            agent_reward += 0.05 * progress
 
             if success:
                 agent_reward += 1.0
@@ -216,10 +242,10 @@ class SMARTSSceneRepEnv:
             agent_reward = raw_reward
 
             
-        print(
-        f"[debug] dist={distance_travelled:.2f}, "
-        f"success={success}, done={done}, reward={agent_reward}"
-        )
+        #print(
+        #f"[debug] dist={distance_travelled:.2f}, "
+        #f"success={success}, done={done}, reward={agent_reward}"
+        #)
 
 
         return {

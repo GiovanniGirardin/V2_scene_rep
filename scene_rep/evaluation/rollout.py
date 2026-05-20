@@ -4,6 +4,8 @@ from typing import Any, Dict
 
 import numpy as np
 
+import torch
+
 from scene_rep.envs.smarts_env import SMARTSSceneRepEnv
 from scene_rep.models.sac import SACAgent
 from scene_rep.utils.torch_utils import action_to_numpy, obs_to_torch
@@ -35,10 +37,11 @@ def run_episode(
             add_batch_dim=True,
         )
 
-        action_torch = agent.act(
-            obs_torch,
-            deterministic=deterministic,
-        )
+        with torch.no_grad():
+            action_torch = agent.act(
+                obs_torch,
+                deterministic=deterministic,
+            )
 
         action = action_to_numpy(action_torch)
 

@@ -53,7 +53,7 @@ class SACAgent(nn.Module):
 
         self._freeze_targets()
 
-        self.log_alpha = torch.tensor(0.0, requires_grad=True)
+        self.log_alpha = nn.Parameter(torch.tensor(0.0))
         self.target_entropy = float(self.sac_cfg["target_entropy"])
 
         self.encoder_optimizer = torch.optim.Adam(

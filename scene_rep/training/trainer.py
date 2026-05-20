@@ -19,7 +19,7 @@ from scene_rep.utils.torch_utils import (
     obs_to_torch,
     sequence_batch_to_torch,
 )
-
+from scene_rep.training.logger import EpisodeLogger
 
 class Trainer:
     """
@@ -43,8 +43,15 @@ class Trainer:
         self.env = SMARTSSceneRepEnv(config)
 
         self.buffer = ReplayBuffer(config)
-        self.future_queue = FutureQueue(config)
-        self.sequence_buffer = SequenceBuffer(config)
+
+        self.slt_enabled = bool(self.slt_cfg.get("enabled", True))
+
+        if self.slt_enabled:
+            self.future_queue = FutureQueue(config)
+            self.sequence_buffer = SequenceBuffer(config)
+        else:
+            self.future_queue = None
+            self.sequence_buffer = None
 
         self.agent = SACAgent(config).to(self.device)
 
@@ -54,12 +61,17 @@ class Trainer:
         self.save_every_steps = int(self.training_cfg["save_every_steps"])
         self.checkpoint_dir = str(self.training_cfg["checkpoint_dir"])
 
-        self.slt_enabled = bool(self.slt_cfg.get("enabled", True))
+        
         self.slt_updates_per_step = int(self.slt_cfg.get("updates_per_step", 1))
 
     def train(self) -> None:
         obs = self.env.reset()
-        self.future_queue.reset()
+        if self.slt_enabled:
+            self.future_queue.reset()
+        
+        episode_return = 0.0
+        episode_length = 0
+        last_episode_info = {}
 
         last_metrics: Dict[str, float] = {}
         last_slt_metrics: Dict[str, float] = {}
@@ -109,10 +121,22 @@ class Trainer:
             )
 
             obs = next_obs
-
+            episode_return += float(reward)
+            episode_length += 1
+            last_episode_info = info
             if done:
+                self.logger.log_episode(
+                    global_step=step,
+                    episode_return=episode_return,
+                    episode_length=episode_length,
+                    info=last_episode_info,
+                )
+                episode_return = 0.0
+                episode_length = 0
+                last_episode_info = {}
                 obs = self.env.reset()
-                self.future_queue.reset()
+                if self.slt_enabled:
+                    self.future_queue.reset()
 
             # --------------------------------------------------------
             # SAC update
@@ -129,7 +153,7 @@ class Trainer:
             if (
                 self.slt_enabled
                 and step >= self.warmup_steps
-                and self.sequence_buffer.can_sample()
+                and self.sequence_buffer is not None and self.sequence_buffer.can_sample()
             ):
                 for _ in range(self.slt_updates_per_step):
                     seq_np = self.sequence_buffer.sample()
@@ -143,7 +167,7 @@ class Trainer:
                 progress.set_postfix(
                     {
                         "buffer": len(self.buffer),
-                        "seq": len(self.sequence_buffer),
+                        "seq": len(self.sequence_buffer) if self.sequence_buffer is not None else 0,
                         "reward": reward,
                         "alpha": round(last_metrics.get("alpha", 0.0), 4),
                         "critic": round(last_metrics.get("critic_loss", 0.0), 4),

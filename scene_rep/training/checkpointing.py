@@ -30,6 +30,7 @@ def save_checkpoint(
         "target_critic2": agent.target_critic2.state_dict(),
         "log_alpha": agent.log_alpha.detach().cpu(),
         "extra": extra or {},
+        "slt": agent.slt.state_dict(),
     }
 
     torch.save(payload, file_path)
@@ -50,7 +51,8 @@ def load_checkpoint(
     agent.target_encoder.load_state_dict(payload["target_encoder"])
     agent.target_critic1.load_state_dict(payload["target_critic1"])
     agent.target_critic2.load_state_dict(payload["target_critic2"])
-
+    if "slt" in payload:
+        agent.slt.load_state_dict(payload["slt"])
     agent.log_alpha.data = payload["log_alpha"].to(agent.log_alpha.device)
 
     return int(payload["step"])

@@ -1,0 +1,17 @@
+inherit: ../default.yaml
+
+smarts:
+  scenario: "/home/giovanni/SMARTS/scenarios/sumo/merge/3lane_agents_2"
+  agent_id: "Agent-007"
+  agent_type: "LanerWithSpeed"
+  max_episode_steps: 300
+  use_dummy: false
+  headless: true
+
+reward:
+  mode: "sparse"
+  success_reward: 1.0
+  collision_penalty: -1.0
+  off_route_penalty: -1.0
+  step_penalty: 0.0
+  custom_success_distance: 0.0
