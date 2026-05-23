@@ -60,6 +60,7 @@ class Trainer:
         self.log_every_steps = int(self.training_cfg["log_every_steps"])
         self.save_every_steps = int(self.training_cfg["save_every_steps"])
         self.checkpoint_dir = str(self.training_cfg["checkpoint_dir"])
+        self.logger = EpisodeLogger(log_dir="logs")
 
         
         self.slt_updates_per_step = int(self.slt_cfg.get("updates_per_step", 1))

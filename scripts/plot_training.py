@@ -3,51 +3,94 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
 
-def rolling_mean(series, window: int):
+def rolling(series: pd.Series, window: int) -> pd.Series:
     return series.rolling(window=window, min_periods=1).mean()
+
+
+def save_curve(
+    df: pd.DataFrame,
+    y: str,
+    ylabel: str,
+    title: str,
+    out_path: Path,
+    window: int,
+) -> None:
+    x = df["global_step"]
+
+    plt.figure()
+    plt.plot(x, rolling(df[y], window))
+    plt.xlabel("Training step")
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200)
+    plt.close()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--csv", type=str, default="logs/training_episodes.csv")
+    parser.add_argument("--out-dir", type=str, default="logs/plots")
     parser.add_argument("--window", type=int, default=20)
-    parser.add_argument("--out", type=str, default="logs/training_plot.png")
     args = parser.parse_args()
 
     csv_path = Path(args.csv)
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     df = pd.read_csv(csv_path)
 
-    x = df["global_step"]
+    save_curve(
+        df,
+        y="episode_return",
+        ylabel="Episode return",
+        title="Training return",
+        out_path=out_dir / "training_return.png",
+        window=args.window,
+    )
 
-    plt.figure()
-    plt.plot(x, rolling_mean(df["episode_return"], args.window))
-    plt.xlabel("Training step")
-    plt.ylabel("Episode return")
-    plt.title("Training return")
-    plt.savefig(args.out.replace(".png", "_return.png"), dpi=200)
-    plt.close()
+    save_curve(
+        df,
+        y="success",
+        ylabel="Success rate",
+        title="Training success rate",
+        out_path=out_dir / "training_success.png",
+        window=args.window,
+    )
 
-    plt.figure()
-    plt.plot(x, rolling_mean(df["success"], args.window))
-    plt.xlabel("Training step")
-    plt.ylabel("Success rate")
-    plt.title("Training success rate")
-    plt.savefig(args.out.replace(".png", "_success.png"), dpi=200)
-    plt.close()
+    save_curve(
+        df,
+        y="collision",
+        ylabel="Collision rate",
+        title="Training collision rate",
+        out_path=out_dir / "training_collision.png",
+        window=args.window,
+    )
 
-    plt.figure()
-    plt.plot(x, rolling_mean(df["collision"], args.window))
-    plt.xlabel("Training step")
-    plt.ylabel("Collision rate")
-    plt.title("Training collision rate")
-    plt.savefig(args.out.replace(".png", "_collision.png"), dpi=200)
-    plt.close()
+    save_curve(
+        df,
+        y="off_route",
+        ylabel="Off-route rate",
+        title="Training off-route rate",
+        out_path=out_dir / "training_off_route.png",
+        window=args.window,
+    )
 
-    print("Saved plots in:", Path(args.out).parent)
+    save_curve(
+        df,
+        y="episode_length",
+        ylabel="Episode length",
+        title="Training episode length",
+        out_path=out_dir / "training_episode_length.png",
+        window=args.window,
+    )
+
+    print(f"Saved plots to: {out_dir}")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,11 @@
+'''
+EXAMPLE USAGE:
+python3 scripts/train.py \
+  --config configs/default.yaml
+
+'''
+
+
 from __future__ import annotations
 
 import argparse
