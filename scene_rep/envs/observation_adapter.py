@@ -74,6 +74,33 @@ class ObservationAdapter:
     # ------------------------------------------------------------------
     # Motion
     # ------------------------------------------------------------------
+    def _wrap_angle(self, angle: float) -> float:
+        return float((angle + np.pi) % (2.0 * np.pi) - np.pi)
+
+    def _to_ego_xy(self, xy: np.ndarray, ego_xy: np.ndarray, ego_heading: float) -> np.ndarray:
+        delta = np.asarray(xy, dtype=np.float32)[:2] - np.asarray(ego_xy, dtype=np.float32)[:2]
+        cos_h = np.cos(-ego_heading)
+        sin_h = np.sin(-ego_heading)
+        return np.array(
+            [
+                cos_h * delta[0] - sin_h * delta[1],
+                sin_h * delta[0] + cos_h * delta[1],
+            ],
+            dtype=np.float32,
+        )
+
+    def _to_ego_vec(self, vec: np.ndarray, ego_heading: float) -> np.ndarray:
+        vec = np.asarray(vec, dtype=np.float32)[:2]
+        cos_h = np.cos(-ego_heading)
+        sin_h = np.sin(-ego_heading)
+        return np.array(
+            [
+                cos_h * vec[0] - sin_h * vec[1],
+                sin_h * vec[0] + cos_h * vec[1],
+            ],
+            dtype=np.float32,
+        )
+
     def _extract_current_motion(self, raw_obs: Dict[str, Any] | None) -> np.ndarray:
         current = np.zeros(
             (self.num_agents, self.motion_dim),
@@ -86,14 +113,23 @@ class ObservationAdapter:
         # Dummy mode
         if "ego" in raw_obs:
             ego = raw_obs["ego"]
+            ego_xy = np.array([float(ego["x"]), float(ego["y"])], dtype=np.float32)
+            ego_heading = float(ego["heading"])
+            ego_vel = self._to_ego_vec(
+                np.array(
+                    [float(ego.get("vx", 0.0)), float(ego.get("vy", 0.0))],
+                    dtype=np.float32,
+                ),
+                ego_heading,
+            )
 
             current[0] = np.array(
                 [
-                    ego["x"],
-                    ego["y"],
-                    ego["vx"],
-                    ego["vy"],
-                    ego["heading"],
+                    0.0,
+                    0.0,
+                    float(ego_vel[0]),
+                    float(ego_vel[1]),
+                    0.0,
                 ],
                 dtype=np.float32,
             )
@@ -101,13 +137,20 @@ class ObservationAdapter:
             neighbors = raw_obs.get("neighbors", [])
 
             for i, neighbor in enumerate(neighbors[: self.max_neighbors]):
+                neighbor_xy = np.array([float(neighbor["x"]), float(neighbor["y"])], dtype=np.float32)
+                neighbor_vel = np.array(
+                    [float(neighbor.get("vx", 0.0)), float(neighbor.get("vy", 0.0))],
+                    dtype=np.float32,
+                )
+                rel_xy = self._to_ego_xy(neighbor_xy, ego_xy, ego_heading)
+                rel_vel = self._to_ego_vec(neighbor_vel, ego_heading)
                 current[i + 1] = np.array(
                     [
-                        neighbor["x"],
-                        neighbor["y"],
-                        neighbor["vx"],
-                        neighbor["vy"],
-                        neighbor["heading"],
+                        float(rel_xy[0]),
+                        float(rel_xy[1]),
+                        float(rel_vel[0]),
+                        float(rel_vel[1]),
+                        self._wrap_angle(float(neighbor["heading"]) - ego_heading),
                     ],
                     dtype=np.float32,
                 )
@@ -121,14 +164,20 @@ class ObservationAdapter:
 
         ego_pos = ego_state.position
         ego_vel = ego_state.linear_velocity
+        ego_xy = np.array([float(ego_pos[0]), float(ego_pos[1])], dtype=np.float32)
+        ego_heading = float(ego_state.heading)
+        ego_vel_xy = self._to_ego_vec(
+            np.array([float(ego_vel[0]), float(ego_vel[1])], dtype=np.float32),
+            ego_heading,
+        )
 
         current[0] = np.array(
             [
-                float(ego_pos[0]),
-                float(ego_pos[1]),
-                float(ego_vel[0]),
-                float(ego_vel[1]),
-                float(ego_state.heading),
+                0.0,
+                0.0,
+                float(ego_vel_xy[0]),
+                float(ego_vel_xy[1]),
+                0.0,
             ],
             dtype=np.float32,
         )
@@ -142,14 +191,16 @@ class ObservationAdapter:
 
             vx = speed * np.cos(heading)
             vy = speed * np.sin(heading)
+            rel_xy = self._to_ego_xy(np.array(pos[:2], dtype=np.float32), ego_xy, ego_heading)
+            rel_vel = self._to_ego_vec(np.array([vx, vy], dtype=np.float32), ego_heading)
 
             current[i + 1] = np.array(
                 [
-                    float(pos[0]),
-                    float(pos[1]),
-                    float(vx),
-                    float(vy),
-                    heading,
+                    float(rel_xy[0]),
+                    float(rel_xy[1]),
+                    float(rel_vel[0]),
+                    float(rel_vel[1]),
+                    self._wrap_angle(heading - ego_heading),
                 ],
                 dtype=np.float32,
             )
@@ -213,11 +264,17 @@ class ObservationAdapter:
         # Dummy mode
         if "ego" in raw_obs:
             agents = [raw_obs["ego"]] + raw_obs.get("neighbors", [])[: self.max_neighbors]
+            ego = raw_obs["ego"]
+            ego_xy = np.array([float(ego["x"]), float(ego["y"])], dtype=np.float32)
+            ego_heading = float(ego["heading"])
 
             for agent_idx, agent in enumerate(agents):
-                base_x = float(agent["x"])
-                base_y = float(agent["y"])
-                heading = float(agent["heading"])
+                base_xy = self._to_ego_xy(
+                    np.array([float(agent["x"]), float(agent["y"])], dtype=np.float32),
+                    ego_xy,
+                    ego_heading,
+                )
+                heading = self._wrap_angle(float(agent["heading"]) - ego_heading)
 
                 candidate_offsets = [0.0, -3.5, 3.5]
 
@@ -225,8 +282,8 @@ class ObservationAdapter:
                     candidate_offsets[: self.max_candidate_routes]
                 ):
                     for t in range(self.waypoint_len):
-                        waypoints[agent_idx, route_idx, t, 0] = base_x + float(t + 1)
-                        waypoints[agent_idx, route_idx, t, 1] = base_y + lane_offset
+                        waypoints[agent_idx, route_idx, t, 0] = base_xy[0] + float(t + 1)
+                        waypoints[agent_idx, route_idx, t, 1] = base_xy[1] + lane_offset
                         waypoints[agent_idx, route_idx, t, 2] = heading
 
                     route_mask[agent_idx, route_idx] = 1.0
@@ -235,16 +292,20 @@ class ObservationAdapter:
 
         # Real SMARTS mode
         smarts_obs = raw_obs["obs"]
+        ego_state = smarts_obs.ego_vehicle_state
+        ego_xy = np.array([float(ego_state.position[0]), float(ego_state.position[1])], dtype=np.float32)
+        ego_heading = float(ego_state.heading)
 
         waypoint_paths = getattr(smarts_obs, "waypoint_paths", [])
 
         for route_idx, path in enumerate(waypoint_paths[: self.max_candidate_routes]):
             for t, wp in enumerate(path[: self.waypoint_len]):
                 pos = wp.pos
+                rel_xy = self._to_ego_xy(np.array(pos[:2], dtype=np.float32), ego_xy, ego_heading)
 
-                waypoints[0, route_idx, t, 0] = float(pos[0])
-                waypoints[0, route_idx, t, 1] = float(pos[1])
-                waypoints[0, route_idx, t, 2] = float(wp.heading)
+                waypoints[0, route_idx, t, 0] = float(rel_xy[0])
+                waypoints[0, route_idx, t, 1] = float(rel_xy[1])
+                waypoints[0, route_idx, t, 2] = self._wrap_angle(float(wp.heading) - ego_heading)
 
             route_mask[0, route_idx] = 1.0
 
@@ -255,14 +316,16 @@ class ObservationAdapter:
             agent_idx = i + 1
             pos = vehicle.position
             heading = float(vehicle.heading)
+            rel_xy = self._to_ego_xy(np.array(pos[:2], dtype=np.float32), ego_xy, ego_heading)
+            rel_heading = self._wrap_angle(heading - ego_heading)
 
             dx = np.cos(heading)
             dy = np.sin(heading)
 
             for t in range(self.waypoint_len):
-                waypoints[agent_idx, 0, t, 0] = float(pos[0]) + dx * float(t + 1)
-                waypoints[agent_idx, 0, t, 1] = float(pos[1]) + dy * float(t + 1)
-                waypoints[agent_idx, 0, t, 2] = heading
+                waypoints[agent_idx, 0, t, 0] = float(rel_xy[0]) + dx * float(t + 1)
+                waypoints[agent_idx, 0, t, 1] = float(rel_xy[1]) + dy * float(t + 1)
+                waypoints[agent_idx, 0, t, 2] = rel_heading
 
             route_mask[agent_idx, 0] = 1.0
 

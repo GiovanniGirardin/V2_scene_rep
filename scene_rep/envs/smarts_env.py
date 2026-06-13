@@ -221,22 +221,30 @@ class SMARTSSceneRepEnv:
         raw_reward = float(reward[self.agent_id])
 
         reward_mode = str(self.reward_cfg.get("mode", "progress"))
+        success_reward = float(self.reward_cfg.get("success_reward", 1.0))
+        collision_penalty = float(self.reward_cfg.get("collision_penalty", -1.0))
+        off_route_penalty = float(self.reward_cfg.get("off_route_penalty", -1.0))
+        step_penalty = float(self.reward_cfg.get("step_penalty", 0.0))
 
         if reward_mode == "sparse":
-            agent_reward = 0.0
+            agent_reward = step_penalty
             if success:
-                agent_reward += 1.0
-            if collision or off_route or off_road:
-                agent_reward -= 1.0
+                agent_reward += success_reward
+            if collision:
+                agent_reward += collision_penalty
+            if off_route or off_road:
+                agent_reward += off_route_penalty
 
         elif reward_mode == "progress":
-            agent_reward = 0.0
+            agent_reward = step_penalty
             agent_reward += 0.05 * progress
 
             if success:
-                agent_reward += 1.0
-            if collision or off_route or off_road:
-                agent_reward -= 1.0
+                agent_reward += success_reward
+            if collision:
+                agent_reward += collision_penalty
+            if off_route or off_road:
+                agent_reward += off_route_penalty
 
         else:
             agent_reward = raw_reward
