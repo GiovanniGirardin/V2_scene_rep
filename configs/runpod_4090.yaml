@@ -1,0 +1,118 @@
+project:
+  name: V2_scene_rep_runpod_4090
+  seed: 42
+  device: auto
+
+smarts:
+  scenario_path: scenarios/sumo/loop
+  headless: true
+  envision: false
+  timestep_sec: 0.1
+  max_episode_steps: 300
+  use_dummy: false
+  dt: 0.1
+
+  # Dummy settings, ignored when use_dummy=false
+  dummy_goal_x: 30.0
+  dummy_obstacle_x: 15.0
+  dummy_collision_speed: 8.0
+
+  # Important on RunPod
+  scenario: "/workspace/SMARTS/scenarios/sumo/loop"
+
+  agent_id: "Agent-007"
+  agent_type: "LanerWithSpeed"
+
+observation:
+  history_len: 4
+  max_neighbors: 3
+  neighbor_radius_m: 60.0
+  max_candidate_routes: 3
+  waypoint_len: 10
+  waypoint_spacing_m: 2.0
+
+action:
+  max_speed_mps: 15.0
+  lane_change_bins:
+    left: [-1.0, -0.333333]
+    keep: [-0.333333, 0.333333]
+    right: [0.333333, 1.0]
+
+reward:
+  mode: "sparse"
+  success_reward: 1.0
+  collision_penalty: -1.0
+  off_route_penalty: -1.0
+
+  # Keep this at 0.0 only if you intentionally want a purely sparse reward.
+  # For serious training, a tiny time penalty can discourage stagnation.
+  step_penalty: -0.001
+
+  # 0.0 is usually too strict. Use 1.0–1.5 for SMARTS goal-reaching.
+  custom_success_distance: 1.5
+
+model:
+  motion_dim: 5
+  waypoint_dim: 3
+
+  # This is a good first serious model size.
+  # If training is very fast and stable, later try d_model=256, latent_dim=256.
+  d_model: 128
+  nhead: 4
+  num_layers: 2
+  latent_dim: 128
+  dropout: 0.1
+
+sac:
+  # Much larger than debug. Your previous 5000 was too small for serious off-policy RL.
+  replay_size: 200000
+
+  # Good for 24GB GPU. If you get CUDA OOM, reduce to 128.
+  batch_size: 256
+
+  # Let the buffer collect enough diverse transitions before learning.
+  warmup_steps: 5000
+
+  updates_per_step: 1
+  gamma: 0.99
+  tau: 0.005
+
+  actor_lr: 0.0001
+  critic_lr: 0.0001
+  alpha_lr: 0.0001
+  target_entropy: -2.0
+
+slt:
+  enabled: true
+
+  # The paper studies future horizons such as 3, 5, 10, 20.
+  # Start with 5: more informative than 3, not too noisy.
+  future_horizon: 5
+
+  # Larger sequence buffer for meaningful SLT training.
+  sequence_replay_size: 50000
+
+  # Match SAC batch size if memory allows.
+  batch_size: 128
+
+  updates_per_step: 1
+  lr: 0.0001
+  loss_weight: 0.1
+
+  projector_dim: 128
+  predictor_dim: 128
+
+training:
+  # Serious first run
+  total_steps: 100000
+
+  # Evaluate and save often enough that you do not lose progress.
+  eval_every_steps: 5000
+  save_every_steps: 5000
+  log_every_steps: 100
+
+  checkpoint_dir: checkpoints/runpod_4090_seed42
+
+  ablation:
+    use_mst: true
+    use_slt: true

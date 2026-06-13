@@ -1,0 +1,85 @@
+project:
+  name: V2_scene_rep
+  seed: 42
+  device: auto
+
+smarts:
+  scenario_path: scenarios/sumo/loop
+  headless: true
+  envision: false
+  timestep_sec: 0.1
+  max_episode_steps: 300
+  use_dummy: false
+  dt: 0.1
+  dummy_goal_x: 30.0
+  dummy_obstacle_x: 15.0
+  dummy_collision_speed: 8.0
+  scenario: "/home/giovanni/SMARTS/scenarios/sumo/loop"
+  agent_id: "Agent-007"
+  agent_type: "LanerWithSpeed"
+
+observation:
+  history_len: 4
+  max_neighbors: 3
+  neighbor_radius_m: 60.0
+  max_candidate_routes: 3
+  waypoint_len: 10
+  waypoint_spacing_m: 2.0
+
+action:
+  max_speed_mps: 15.0
+  lane_change_bins:
+    left: [-1.0, -0.333333]
+    keep: [-0.333333, 0.333333]
+    right: [0.333333, 1.0]
+
+reward:
+  mode: "sparse"
+  success_reward: 1.0
+  collision_penalty: -1.0
+  off_route_penalty: -1.0
+  step_penalty: 0.0
+  custom_success_distance: 0.0
+
+model:
+  motion_dim: 5
+  waypoint_dim: 3
+  d_model: 128
+  nhead: 4
+  num_layers: 1
+  latent_dim: 128
+  dropout: 0.1
+
+sac:
+  replay_size: 5000
+  batch_size: 8
+  warmup_steps: 500
+  updates_per_step: 1
+  gamma: 0.99
+  tau: 0.005
+  actor_lr: 0.0001
+  critic_lr: 0.0001
+  alpha_lr: 0.0001
+  target_entropy: -2.0
+
+slt:
+  enabled: true
+  future_horizon: 3
+  sequence_replay_size: 500
+  batch_size: 4
+  updates_per_step: 1
+  lr: 0.0001
+  loss_weight: 0.1
+  projector_dim: 128
+  predictor_dim: 128
+
+training:
+  total_steps: 1000
+  eval_every_steps: 500
+  save_every_steps: 500
+  log_every_steps: 100
+  checkpoint_dir: checkpoints
+
+  ablation:
+    use_mst: true
+    use_slt: true
