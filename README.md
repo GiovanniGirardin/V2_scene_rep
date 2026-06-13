@@ -70,3 +70,6 @@ Action:
   lane_change_continuous later discretized into left / keep / right
 
 
+echo 'export SUMO_HOME=/workspace/V2_scene_rep/venv/lib/python3.10/site-packages/sumo' >> ~/.bashrc
+echo 'export PYTHONPATH=$SUMO_HOME/tools:$PYTHONPATH' >> ~/.bashrc
+source ~/.bashrc
