@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any, Dict, Tuple
 
 import numpy as np
@@ -135,6 +136,14 @@ class SMARTSSceneRepEnv:
             neighborhood_vehicle_states=NeighborhoodVehicles(radius=50),
         )
                 }
+
+        # Suppress overly verbose SMARTS vehicle ID length warnings.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`vehicle id` named `.*` is more than `50` characters long.*",
+            category=UserWarning,
+            module=r"smarts\.env\.utils\.observation_conversion",
+        )
 
         self._smarts_env = gym.make(
             "smarts.env:hiway-v1",

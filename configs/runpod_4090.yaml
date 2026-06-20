@@ -18,7 +18,7 @@ smarts:
   dummy_collision_speed: 8.0
 
   # Important on RunPod
-  scenario: "/workspace/SMARTS/scenarios/sumo/loop"
+  scenario: "/workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
 
   agent_id: "Agent-007"
   agent_type: "LanerWithSpeed"
@@ -32,17 +32,19 @@ observation:
   waypoint_spacing_m: 2.0
 
 action:
-  max_speed_mps: 15.0
+  max_speed_mps: 10.0
   lane_change_bins:
     left: [-1.0, -0.333333]
     keep: [-0.333333, 0.333333]
     right: [0.333333, 1.0]
 
 reward:
-  mode: "sparse"
+  mode: "progress"
   success_reward: 1.0
   collision_penalty: -1.0
   off_route_penalty: -1.0
+  step_penalty: 0.0
+  custom_success_distance: 0.0
 
   # Keep this at 0.0 only if you intentionally want a purely sparse reward.
   # For serious training, a tiny time penalty can discourage stagnation.
@@ -54,9 +56,6 @@ reward:
 model:
   motion_dim: 5
   waypoint_dim: 3
-
-  # This is a good first serious model size.
-  # If training is very fast and stable, later try d_model=256, latent_dim=256.
   d_model: 128
   nhead: 4
   num_layers: 2

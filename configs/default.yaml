@@ -14,7 +14,7 @@ smarts:
   dummy_goal_x: 30.0
   dummy_obstacle_x: 15.0
   dummy_collision_speed: 8.0
-  scenario: "/home/giovanni/SMARTS/scenarios/sumo/loop"
+  scenario: "/home/giovanni/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
   agent_id: "Agent-007"
   agent_type: "LanerWithSpeed"
 
