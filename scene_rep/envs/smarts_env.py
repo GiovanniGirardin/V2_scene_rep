@@ -159,6 +159,13 @@ class SMARTSSceneRepEnv:
         agent_info = info.get(self.agent_id, {})
         env_obs = agent_info.get("env_obs", obs.get(self.agent_id))
 
+        if env_obs is not None:
+            ego_pos = env_obs.ego_vehicle_state.position
+            self.prev_ego_xy = np.array(
+                [float(ego_pos[0]), float(ego_pos[1])],
+                dtype=np.float32,
+            )
+
         return {
             "obs": env_obs,
             "info": agent_info,
@@ -202,12 +209,9 @@ class SMARTSSceneRepEnv:
         events = getattr(agent_obs, "events", None)
 
         distance_travelled = 0.0
-        
+
         if agent_obs is not None and hasattr(agent_obs, "distance_travelled"):
             distance_travelled = float(agent_obs.distance_travelled)
-        
-        progress = distance_travelled - self.prev_distance_travelled
-        self.prev_distance_travelled = distance_travelled
 
         success = bool(events.reached_goal) if events is not None else False
 
@@ -223,6 +227,8 @@ class SMARTSSceneRepEnv:
             "collision": collision,
             "off_route": off_route or off_road,
             "stagnation": stagnation,
+            "progress": progress,
+            "distance_travelled": distance_travelled,
             "raw_info": agent_info,
         }
 
