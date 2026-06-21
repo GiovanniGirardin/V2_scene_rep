@@ -57,7 +57,7 @@ model:
 
 sac:
   replay_size: 200000
-  batch_size: 256
+  batch_size: 128
   warmup_steps: 5000
 
   updates_per_step: 1
@@ -74,7 +74,7 @@ slt:
   # Try 3, 5, 10, 20.
   future_horizon: 5
   sequence_replay_size: 50000
-  batch_size: 256
+  batch_size: 128
 
   updates_per_step: 1
   lr: 0.0001
