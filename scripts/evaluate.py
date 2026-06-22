@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scene_rep.envs.smarts_env import SMARTSSceneRepEnv
 from scene_rep.evaluation.rollout import evaluate_policy
@@ -64,10 +67,24 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--out", type=str, default="logs/evaluation_results.csv")
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Run SMARTS in non-headless mode so behavior can be viewed in the simulator GUI.",
+    )
+    parser.add_argument(
+        "--trace-actions",
+        action="store_true",
+        help="Print per-step policy actions, adapted SMARTS actions, reward, and progress.",
+    )
 
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+
+    if args.gui:
+        cfg["smarts"]["headless"] = False
+        cfg["smarts"]["envision"] = True
     device = get_device(cfg["project"]["device"])
     set_seed(int(cfg["project"]["seed"]))
 
@@ -88,6 +105,7 @@ def main() -> None:
         device=device,
         episodes=args.episodes,
         deterministic=True,
+        trace_actions=args.trace_actions,
     )
 
     env.close()

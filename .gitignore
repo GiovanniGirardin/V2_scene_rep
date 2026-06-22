@@ -64,6 +64,12 @@ htmlcov/
 # =========================
 *.swp
 
+# =========================
+# Old REPO
+# =========================
+Scene-Rep-Transformer/
+
+
 # SMARTS
 .envision/
 

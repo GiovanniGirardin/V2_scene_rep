@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import Any, Dict, Tuple
 
 import numpy as np
@@ -136,6 +137,14 @@ class SMARTSSceneRepEnv:
         )
                 }
 
+        # Suppress overly verbose SMARTS vehicle ID length warnings.
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`vehicle id` named `.*` is more than `50` characters long.*",
+            category=UserWarning,
+            module=r"smarts\.env\.utils\.observation_conversion",
+        )
+
         self._smarts_env = gym.make(
             "smarts.env:hiway-v1",
             scenarios=[scenario],
@@ -149,6 +158,13 @@ class SMARTSSceneRepEnv:
 
         agent_info = info.get(self.agent_id, {})
         env_obs = agent_info.get("env_obs", obs.get(self.agent_id))
+
+        if env_obs is not None:
+            ego_pos = env_obs.ego_vehicle_state.position
+            self.prev_ego_xy = np.array(
+                [float(ego_pos[0]), float(ego_pos[1])],
+                dtype=np.float32,
+            )
 
         return {
             "obs": env_obs,
@@ -193,12 +209,9 @@ class SMARTSSceneRepEnv:
         events = getattr(agent_obs, "events", None)
 
         distance_travelled = 0.0
-        
+
         if agent_obs is not None and hasattr(agent_obs, "distance_travelled"):
             distance_travelled = float(agent_obs.distance_travelled)
-        
-        progress = distance_travelled - self.prev_distance_travelled
-        self.prev_distance_travelled = distance_travelled
 
         success = bool(events.reached_goal) if events is not None else False
 
@@ -214,6 +227,8 @@ class SMARTSSceneRepEnv:
             "collision": collision,
             "off_route": off_route or off_road,
             "stagnation": stagnation,
+            "progress": progress,
+            "distance_travelled": distance_travelled,
             "raw_info": agent_info,
         }
 
@@ -221,22 +236,30 @@ class SMARTSSceneRepEnv:
         raw_reward = float(reward[self.agent_id])
 
         reward_mode = str(self.reward_cfg.get("mode", "progress"))
+        success_reward = float(self.reward_cfg.get("success_reward", 1.0))
+        collision_penalty = float(self.reward_cfg.get("collision_penalty", -1.0))
+        off_route_penalty = float(self.reward_cfg.get("off_route_penalty", -1.0))
+        step_penalty = float(self.reward_cfg.get("step_penalty", 0.0))
 
         if reward_mode == "sparse":
-            agent_reward = 0.0
+            agent_reward = step_penalty
             if success:
-                agent_reward += 1.0
-            if collision or off_route or off_road:
-                agent_reward -= 1.0
+                agent_reward += success_reward
+            if collision:
+                agent_reward += collision_penalty
+            if off_route or off_road:
+                agent_reward += off_route_penalty
 
         elif reward_mode == "progress":
-            agent_reward = 0.0
+            agent_reward = step_penalty
             agent_reward += 0.05 * progress
 
             if success:
-                agent_reward += 1.0
-            if collision or off_route or off_road:
-                agent_reward -= 1.0
+                agent_reward += success_reward
+            if collision:
+                agent_reward += collision_penalty
+            if off_route or off_road:
+                agent_reward += off_route_penalty
 
         else:
             agent_reward = raw_reward

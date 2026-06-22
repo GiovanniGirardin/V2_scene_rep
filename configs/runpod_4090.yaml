@@ -4,7 +4,7 @@ project:
   device: auto
 
 smarts:
-  scenario_path: scenarios/sumo/loop
+  scenario_path: /workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1
   headless: true
   envision: false
   timestep_sec: 0.1
@@ -18,7 +18,7 @@ smarts:
   dummy_collision_speed: 8.0
 
   # Important on RunPod
-  scenario: "/workspace/SMARTS/scenarios/sumo/loop"
+  scenario: "/workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
 
   agent_id: "Agent-007"
   agent_type: "LanerWithSpeed"
@@ -32,31 +32,23 @@ observation:
   waypoint_spacing_m: 2.0
 
 action:
-  max_speed_mps: 15.0
+  max_speed_mps: 10.0
   lane_change_bins:
-    left: [-1.0, -0.333333]
+    right: [-1.0, -0.333333]
     keep: [-0.333333, 0.333333]
-    right: [0.333333, 1.0]
+    left: [0.333333, 1.0]
 
 reward:
-  mode: "sparse"
+  mode: "progress"
   success_reward: 1.0
   collision_penalty: -1.0
   off_route_penalty: -1.0
-
-  # Keep this at 0.0 only if you intentionally want a purely sparse reward.
-  # For serious training, a tiny time penalty can discourage stagnation.
   step_penalty: -0.001
-
-  # 0.0 is usually too strict. Use 1.0–1.5 for SMARTS goal-reaching.
   custom_success_distance: 1.5
 
 model:
   motion_dim: 5
   waypoint_dim: 3
-
-  # This is a good first serious model size.
-  # If training is very fast and stable, later try d_model=256, latent_dim=256.
   d_model: 128
   nhead: 4
   num_layers: 2
@@ -64,13 +56,8 @@ model:
   dropout: 0.1
 
 sac:
-  # Much larger than debug. Your previous 5000 was too small for serious off-policy RL.
   replay_size: 200000
-
-  # Good for 24GB GPU. If you get CUDA OOM, reduce to 128.
-  batch_size: 256
-
-  # Let the buffer collect enough diverse transitions before learning.
+  batch_size: 128
   warmup_steps: 5000
 
   updates_per_step: 1
@@ -84,15 +71,9 @@ sac:
 
 slt:
   enabled: true
-
-  # The paper studies future horizons such as 3, 5, 10, 20.
-  # Start with 5: more informative than 3, not too noisy.
+  # Try 3, 5, 10, 20.
   future_horizon: 5
-
-  # Larger sequence buffer for meaningful SLT training.
   sequence_replay_size: 50000
-
-  # Match SAC batch size if memory allows.
   batch_size: 128
 
   updates_per_step: 1
@@ -103,10 +84,8 @@ slt:
   predictor_dim: 128
 
 training:
-  # Serious first run
-  total_steps: 100000
 
-  # Evaluate and save often enough that you do not lose progress.
+  total_steps: 100000
   eval_every_steps: 5000
   save_every_steps: 5000
   log_every_steps: 100

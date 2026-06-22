@@ -1,7 +1,7 @@
 inherit: ../default.yaml
 
 smarts:
-  scenario: "/home/giovanni/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
+  scenario: "/workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
   agent_id: "Agent-007"
   agent_type: "LanerWithSpeed"
   max_episode_steps: 300

@@ -9,6 +9,10 @@ python3 scripts/train.py \
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scene_rep.training.trainer import Trainer
 from scene_rep.utils.config import load_config

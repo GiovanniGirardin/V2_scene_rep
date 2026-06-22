@@ -17,6 +17,8 @@ def run_episode(
     agent: SACAgent,
     device,
     deterministic: bool = True,
+    trace_actions: bool = False,
+    episode_index: int = 0,
 ) -> Dict[str, Any]:
     obs = env.reset()
 
@@ -50,6 +52,18 @@ def run_episode(
         total_reward += float(reward)
         steps += 1
 
+        if trace_actions:
+            smarts_action = info.get("smarts_action", {})
+            print(
+                f"episode={episode_index} step={steps} "
+                f"raw_action=({action[0]:.4f}, {action[1]:.4f}) "
+                f"speed={float(smarts_action.get('speed', 0.0)):.3f} "
+                f"lane_change={int(smarts_action.get('lane_change', 0))} "
+                f"reward={float(reward):.5f} "
+                f"progress={float(info.get('progress', 0.0)):.3f} "
+                f"done={done}"
+            )
+
         success = success or bool(info.get("success", False))
         collision = collision or bool(info.get("collision", False))
         off_route = off_route or bool(info.get("off_route", False))
@@ -70,6 +84,7 @@ def evaluate_policy(
     device,
     episodes: int = 10,
     deterministic: bool = True,
+    trace_actions: bool = False,
 ) -> Dict[str, float]:
     results = [
         run_episode(
@@ -77,8 +92,10 @@ def evaluate_policy(
             agent=agent,
             device=device,
             deterministic=deterministic,
+            trace_actions=trace_actions,
+            episode_index=episode_idx + 1,
         )
-        for _ in range(episodes)
+        for episode_idx in range(episodes)
     ]
 
     return compute_episode_metrics(results)
