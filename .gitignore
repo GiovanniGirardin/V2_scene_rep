@@ -74,15 +74,12 @@ Scene-Rep-Transformer/
 
 # PyTorch checkpoints
 checkpoints/
-*.pt
 
 # RunPod / training artifacts
 checkpoints/
-*.pt
 *.pth
 *.ckpt
 *.tar.gz
 *.zip
 
 !git_checkpoints/
-*.pt
