@@ -18,6 +18,7 @@ def compute_episode_metrics(episodes: List[Dict[str, Any]]) -> Dict[str, float]:
 
     Optional:
         stagnation
+        timeout
     """
     if len(episodes) == 0:
         raise ValueError("Cannot compute metrics from an empty episode list.")
@@ -29,6 +30,7 @@ def compute_episode_metrics(episodes: List[Dict[str, Any]]) -> Dict[str, float]:
     collision = np.array([e.get("collision", False) for e in episodes], dtype=np.float32)
     off_route = np.array([e.get("off_route", False) for e in episodes], dtype=np.float32)
     stagnation = np.array([e.get("stagnation", False) for e in episodes], dtype=np.float32)
+    timeout = np.array([e.get("timeout", False) for e in episodes], dtype=np.float32)
 
     return {
         "episodes": float(len(episodes)),
@@ -39,4 +41,5 @@ def compute_episode_metrics(episodes: List[Dict[str, Any]]) -> Dict[str, float]:
         "collision_rate": float(collision.mean()),
         "off_route_rate": float(off_route.mean()),
         "stagnation_rate": float(stagnation.mean()),
+        "timeout_rate": float(timeout.mean()),
     }

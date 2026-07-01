@@ -50,7 +50,6 @@ dist/
 checkpoints/
 outputs/
 runs/
-*.pt
 *.pth
 
 # =========================

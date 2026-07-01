@@ -27,6 +27,7 @@ class SACAgent(nn.Module):
 
         self.gamma = float(self.sac_cfg["gamma"])
         self.tau = float(self.sac_cfg["tau"])
+        self.min_alpha = float(self.sac_cfg.get("min_alpha", 0.0))
 
         latent_dim = int(config["model"]["latent_dim"])
         action_dim = 2
@@ -83,7 +84,10 @@ class SACAgent(nn.Module):
 
     @property
     def alpha(self) -> torch.Tensor:
-        return self.log_alpha.exp()
+        alpha = self.log_alpha.exp()
+        if self.min_alpha > 0.0:
+            alpha = alpha.clamp_min(self.min_alpha)
+        return alpha
 
     @torch.no_grad()
     def act(

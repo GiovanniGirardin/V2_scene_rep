@@ -22,6 +22,14 @@ class ActionAdapter:
 
         self.max_speed = action_cfg["max_speed_mps"]
         self.lane_bins = action_cfg["lane_change_bins"]
+        self.lane_values = action_cfg.get(
+            "lane_change_values",
+            {
+                "left": -1,
+                "keep": 0,
+                "right": 1,
+            },
+        )
 
     # ----------------------------
     # Main API
@@ -63,8 +71,8 @@ class ActionAdapter:
         Convert continuous lane signal into {-1, 0, 1}
         """
         if self.lane_bins["left"][0] <= lane_raw <= self.lane_bins["left"][1]:
-            return -1
+            return int(self.lane_values["left"])
         elif self.lane_bins["right"][0] <= lane_raw <= self.lane_bins["right"][1]:
-            return 1
+            return int(self.lane_values["right"])
         else:
-            return 0
+            return int(self.lane_values.get("keep", 0))

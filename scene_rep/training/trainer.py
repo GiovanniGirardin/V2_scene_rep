@@ -57,6 +57,14 @@ class Trainer:
 
         self.total_steps = int(self.training_cfg["total_steps"])
         self.warmup_steps = int(self.sac_cfg["warmup_steps"])
+        self.warmup_speed_range = tuple(
+            float(v) for v in self.sac_cfg.get("warmup_speed_range", [-1.0, 1.0])
+        )
+        self.warmup_lane_change_prob = float(
+            self.sac_cfg.get("warmup_lane_change_prob", 1.0)
+        )
+        self.action_repeat = max(1, int(self.training_cfg.get("action_repeat", 1)))
+        self._held_action = None
         self.log_every_steps = int(self.training_cfg["log_every_steps"])
         self.save_every_steps = int(self.training_cfg["save_every_steps"])
         self.checkpoint_dir = str(self.training_cfg["checkpoint_dir"])
@@ -79,52 +87,85 @@ class Trainer:
 
         progress = tqdm(range(1, self.total_steps + 1), desc="Training")
 
+        block_obs = obs
+        block_action = None
+        block_reward = 0.0
+        block_len = 0
+        last_reward = 0.0
+
         for step in progress:
             # --------------------------------------------------------
-            # Select action
+            # Select an action at decision boundaries only.
             # --------------------------------------------------------
-            if step < self.warmup_steps:
-                action = np.random.uniform(
-                    low=-1.0,
-                    high=1.0,
-                    size=(2,),
-                ).astype(np.float32)
+            if block_action is None:
+                if step < self.warmup_steps:
+                    speed_low, speed_high = self.warmup_speed_range
+                    action = np.array(
+                        [
+                            np.random.uniform(low=speed_low, high=speed_high),
+                            0.0,
+                        ],
+                        dtype=np.float32,
+                    )
+                    if np.random.random() < self.warmup_lane_change_prob:
+                        action[1] = np.random.uniform(low=-1.0, high=1.0)
+                else:
+                    obs_torch = obs_to_torch(
+                        block_obs,
+                        device=self.device,
+                        add_batch_dim=True,
+                    )
+                    action_torch = self.agent.act(obs_torch, deterministic=False)
+                    action = action_to_numpy(action_torch)
+
+                block_action = action.copy()
+                self._held_action = block_action.copy()
             else:
-                obs_torch = obs_to_torch(
-                    obs,
-                    device=self.device,
-                    add_batch_dim=True,
-                )
-                action_torch = self.agent.act(obs_torch, deterministic=False)
-                action = action_to_numpy(action_torch)
+                action = block_action.copy()
 
             # --------------------------------------------------------
-            # Store current state-action for SLT sequence construction
-            # --------------------------------------------------------
-            if self.slt_enabled:
-                self.future_queue.add(obs=obs, action=action)
-
-                if self.future_queue.is_ready():
-                    sequence = self.future_queue.get_sequence()
-                    self.sequence_buffer.add(sequence)
-
-            # --------------------------------------------------------
-            # Environment step
+            # Environment step. The same action is held for action_repeat
+            # simulator steps, matching the original Scene-Rep trainer.
             # --------------------------------------------------------
             next_obs, reward, done, info = self.env.step(tuple(action))
+            last_reward = float(reward)
 
-            self.buffer.add(
-                obs=obs,
-                action=action,
-                reward=reward,
-                next_obs=next_obs,
-                done=done,
-            )
+            block_reward += (self.agent.gamma ** block_len) * last_reward
+            block_len += 1
 
-            obs = next_obs
-            episode_return += float(reward)
+            episode_return += last_reward
             episode_length += 1
             last_episode_info = info
+
+            should_store_transition = done or block_len >= self.action_repeat
+
+            if should_store_transition:
+                terminal_reason = str(info.get("terminal_reason", ""))
+                timeout_only = bool(info.get("timeout", False)) and terminal_reason == "timeout"
+                done_for_buffer = bool(done and not timeout_only)
+
+                if self.slt_enabled:
+                    self.future_queue.add(obs=block_obs, action=block_action)
+                    if self.future_queue.is_ready():
+                        sequence = self.future_queue.get_sequence()
+                        self.sequence_buffer.add(sequence)
+
+                self.buffer.add(
+                    obs=block_obs,
+                    action=block_action,
+                    reward=block_reward,
+                    next_obs=next_obs,
+                    done=done_for_buffer,
+                )
+
+                block_obs = next_obs
+                block_action = None
+                self._held_action = None
+                block_reward = 0.0
+                block_len = 0
+
+            obs = next_obs
+
             if done:
                 self.logger.log_episode(
                     global_step=step,
@@ -136,6 +177,11 @@ class Trainer:
                 episode_length = 0
                 last_episode_info = {}
                 obs = self.env.reset()
+                block_obs = obs
+                block_action = None
+                self._held_action = None
+                block_reward = 0.0
+                block_len = 0
                 if self.slt_enabled:
                     self.future_queue.reset()
 
@@ -169,7 +215,7 @@ class Trainer:
                     {
                         "buffer": len(self.buffer),
                         "seq": len(self.sequence_buffer) if self.sequence_buffer is not None else 0,
-                        "reward": reward,
+                        "reward": last_reward,
                         "alpha": round(last_metrics.get("alpha", 0.0), 4),
                         "critic": round(last_metrics.get("critic_loss", 0.0), 4),
                         "actor": round(last_metrics.get("actor_loss", 0.0), 4),

@@ -49,10 +49,30 @@ def append_metrics_csv(
         **metrics,
     }
 
+    fieldnames = list(row.keys())
     file_exists = out_path.exists()
 
+    if file_exists:
+        with out_path.open("r", newline="") as f:
+            reader = csv.DictReader(f)
+            existing_fieldnames = reader.fieldnames or []
+            rows = list(reader)
+
+        if existing_fieldnames != fieldnames:
+            merged_fieldnames = existing_fieldnames + [
+                name for name in fieldnames if name not in existing_fieldnames
+            ]
+            backup_path = out_path.with_suffix(out_path.suffix + ".bak")
+            if not backup_path.exists():
+                backup_path.write_text(out_path.read_text())
+            with out_path.open("w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=merged_fieldnames, extrasaction="ignore")
+                writer.writeheader()
+                writer.writerows(rows)
+            fieldnames = merged_fieldnames
+
     with out_path.open("a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(row.keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
 
         if not file_exists:
             writer.writeheader()

@@ -29,6 +29,7 @@ def run_episode(
     collision = False
     off_route = False
     stagnation = False
+    timeout = False
 
     done = False
 
@@ -68,6 +69,7 @@ def run_episode(
         collision = collision or bool(info.get("collision", False))
         off_route = off_route or bool(info.get("off_route", False))
         stagnation = stagnation or bool(info.get("stagnation", False))
+        timeout = timeout or bool(info.get("timeout", False))
     return {
         "total_reward": total_reward,
         "steps": steps,
@@ -75,6 +77,7 @@ def run_episode(
         "collision": collision,
         "off_route": off_route,
         "stagnation": stagnation,
+        "timeout": timeout,
     }
 
 
