@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from functools import partial
 from typing import Any, Dict, Tuple
 
 import numpy as np
@@ -12,6 +13,7 @@ import gymnasium as gym
 
 from smarts.core.agent_interface import AgentInterface, AgentType, NeighborhoodVehicles, Waypoints
 from smarts.core.controllers import ActionSpaceType
+from envision.client import Client as Envision
 
 
 class SMARTSSceneRepEnv:
@@ -155,12 +157,16 @@ class SMARTSSceneRepEnv:
             waypoint_paths=Waypoints(int(self.config["observation"].get("waypoint_len", 10)) + 1),
         )
 
+        envision_endpoint = self.smarts_cfg.get("envision_endpoint")
+        visualization_client_builder = partial(Envision, endpoint=envision_endpoint)
+
         self._smarts_env = gym.make(
             "smarts.env:hiway-v1",
             scenarios=[scenario],
             agent_interfaces=agent_interfaces,
             headless=bool(self.smarts_cfg.get("headless", True)),
             seed=int(self.config["project"]["seed"]),
+            visualization_client_builder=visualization_client_builder,
         )
 
 

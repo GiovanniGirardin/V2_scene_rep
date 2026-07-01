@@ -7,6 +7,7 @@ smarts:
   scenario_path: /workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1
   headless: true
   envision: false
+  envision_endpoint: "ws://localhost:8082"
   timestep_sec: 0.1
   max_episode_steps: 400
   use_dummy: false
