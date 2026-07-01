@@ -84,7 +84,7 @@ sac:
   target_entropy: -2.0
 
 slt:
-  enabled: false
+  enabled: true
   # Try 3, 5, 10, 20.
   future_horizon: 5
   sequence_replay_size: 50000
