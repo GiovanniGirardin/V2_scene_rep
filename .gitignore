@@ -83,3 +83,6 @@ checkpoints/
 *.ckpt
 *.tar.gz
 *.zip
+
+!git_checkpoints/
+*.pt
