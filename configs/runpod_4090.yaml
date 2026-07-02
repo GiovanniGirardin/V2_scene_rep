@@ -4,7 +4,7 @@ project:
   device: auto
 
 smarts:
-  scenario_path: /workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1
+  scenario_path: /home/giovanni/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1
   headless: true
   envision: false
   envision_endpoint: "ws://localhost:8082"
@@ -19,7 +19,7 @@ smarts:
   dummy_collision_speed: 8.0
 
   # Important on RunPod
-  scenario: "/workspace/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
+  scenario: "/home/giovanni/SMARTS/scenarios/sumo/intersections/1_to_2lane_left_turn_t_agents_1"
 
   agent_id: "Agent-007"
   agent_type: "LanerWithSpeed"
