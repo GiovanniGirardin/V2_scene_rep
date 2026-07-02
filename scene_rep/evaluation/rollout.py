@@ -18,6 +18,7 @@ def run_episode(
     device,
     deterministic: bool = True,
     trace_actions: bool = False,
+    log_every_steps: int = 0,
     episode_index: int = 0,
 ) -> Dict[str, Any]:
     obs = env.reset()
@@ -62,7 +63,15 @@ def run_episode(
                 f"lane_change={int(smarts_action.get('lane_change', 0))} "
                 f"reward={float(reward):.5f} "
                 f"progress={float(info.get('progress', 0.0)):.3f} "
-                f"done={done}"
+                f"done={done}",
+                flush=True,
+            )
+        elif log_every_steps > 0 and steps % log_every_steps == 0:
+            print(
+                f"[eval] episode={episode_index} step={steps} "
+                f"reward={total_reward:.5f} "
+                f"progress={float(info.get('progress', 0.0)):.3f}",
+                flush=True,
             )
 
         success = success or bool(info.get("success", False))
@@ -78,6 +87,7 @@ def run_episode(
         "off_route": off_route,
         "stagnation": stagnation,
         "timeout": timeout,
+        "terminal_reason": info.get("terminal_reason", "unknown"),
     }
 
 
@@ -88,17 +98,34 @@ def evaluate_policy(
     episodes: int = 10,
     deterministic: bool = True,
     trace_actions: bool = False,
+    log_every_steps: int = 0,
+    log_episodes: bool = True,
 ) -> Dict[str, float]:
-    results = [
-        run_episode(
+    results = []
+
+    for episode_idx in range(episodes):
+        episode_number = episode_idx + 1
+        if log_episodes:
+            print(f"[eval] starting episode {episode_number}/{episodes}", flush=True)
+
+        result = run_episode(
             env=env,
             agent=agent,
             device=device,
             deterministic=deterministic,
             trace_actions=trace_actions,
-            episode_index=episode_idx + 1,
+            log_every_steps=log_every_steps,
+            episode_index=episode_number,
         )
-        for episode_idx in range(episodes)
-    ]
+        results.append(result)
+
+        if log_episodes:
+            print(
+                f"[eval] finished episode {episode_number}/{episodes}: "
+                f"steps={result['steps']} "
+                f"reward={result['total_reward']:.5f} "
+                f"reason={result.get('terminal_reason', 'unknown')}",
+                flush=True,
+            )
 
     return compute_episode_metrics(results)

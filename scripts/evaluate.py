@@ -1,10 +1,10 @@
 '''
 EXAMPLE USAGE:
 python3 scripts/evaluate.py \
-  --config configs/scenarios/unprotected_left_turn.yaml \
-  --checkpoint checkpoints/sac_step_3000.pt \
-  --episodes 10 \
-  --out logs/evaluation_results.csv
+  --config configs/runpod_4090.yaml \
+  --checkpoint git_checkpoints/sac_step_100000.pt \
+  --episodes 100 \
+  --out logs/evaluation_results_final.csv
 
 '''
 
@@ -97,6 +97,17 @@ def main() -> None:
         action="store_true",
         help="Print per-step policy actions, adapted SMARTS actions, reward, and progress.",
     )
+    parser.add_argument(
+        "--log-every-steps",
+        type=int,
+        default=50,
+        help="Print a compact per-episode progress line every N steps. Use 0 to disable.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Disable episode start/finish progress logging.",
+    )
 
     args = parser.parse_args()
 
@@ -109,26 +120,29 @@ def main() -> None:
     set_seed(int(cfg["project"]["seed"]))
 
     env = SMARTSSceneRepEnv(cfg)
-    agent = SACAgent(cfg).to(device)
+    try:
+        agent = SACAgent(cfg).to(device)
 
-    step = load_checkpoint(
-        agent=agent,
-        checkpoint_path=args.checkpoint,
-        map_location=device,
-    )
+        step = load_checkpoint(
+            agent=agent,
+            checkpoint_path=args.checkpoint,
+            map_location=device,
+        )
 
-    agent.eval()
+        agent.eval()
 
-    metrics = evaluate_policy(
-        env=env,
-        agent=agent,
-        device=device,
-        episodes=args.episodes,
-        deterministic=True,
-        trace_actions=args.trace_actions,
-    )
-
-    env.close()
+        metrics = evaluate_policy(
+            env=env,
+            agent=agent,
+            device=device,
+            episodes=args.episodes,
+            deterministic=True,
+            trace_actions=args.trace_actions,
+            log_every_steps=args.log_every_steps,
+            log_episodes=not args.quiet,
+        )
+    finally:
+        env.close()
 
     append_metrics_csv(
         path=args.out,
