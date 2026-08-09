@@ -81,5 +81,9 @@ checkpoints/
 *.ckpt
 *.tar.gz
 *.zip
+*.png
+*.csv
 
 !git_checkpoints/
+# graphify-axet
+.graphify/
