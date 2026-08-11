@@ -1,0 +1,89 @@
+# Memory-conservative profile for NVIDIA GTX 960M / 2-4 GB VRAM laptops.
+#
+# The file inherits the local SMARTS scenario path from default.yaml.
+# Update smarts.scenario in default.yaml, or override it here, on another machine.
+#
+# Keep project.device set to "auto": recent PyTorch CUDA wheels may not support the
+# GTX 960M's Maxwell compute capability (5.2). "auto" permits CPU fallback.
+
+inherit: default.yaml
+
+project:
+  name: V2_scene_rep_gtx_960m
+  device: auto
+
+smarts:
+  headless: true
+  envision: false
+  max_episode_steps: 300
+
+observation:
+  # Keep the compact ego-relative representation from the default profile.
+  history_len: 4
+  max_neighbors: 3
+  max_candidate_routes: 2
+  waypoint_len: 8
+
+action:
+  # Conservative speed improves stability in the left-turn scenario.
+  max_speed_mps: 7.0
+
+reward:
+  mode: progress
+  success_reward: 30.0
+  collision_penalty: -8.0
+  off_route_penalty: -8.0
+  step_penalty: -0.002
+  progress_reward_scale: 0.10
+  position_delta_reward_scale: 0.02
+  no_progress_penalty: -0.003
+  no_progress_threshold: 0.01
+  custom_success_distance: 1.5
+
+model:
+  # 64-wide, one-layer MST reduces activation memory and compute significantly.
+  d_model: 64
+  nhead: 4
+  num_layers: 1
+  latent_dim: 64
+  dropout: 0.1
+
+sac:
+  # Keep Python/Numpy replay allocations conservative on a laptop.
+  replay_size: 4000
+  batch_size: 8
+  warmup_steps: 1000
+  updates_per_step: 1
+
+  gamma: 0.99
+  tau: 0.005
+  actor_lr: 0.0001
+  critic_lr: 0.0001
+  alpha_lr: 0.0001
+  target_entropy: -2.0
+
+slt:
+  enabled: true
+  future_horizon: 3
+  sequence_replay_size: 512
+  # SLT is the largest transient allocation; keep this batch especially small.
+  batch_size: 4
+  updates_per_step: 1
+  lr: 0.0001
+  # Start conservatively, then compare against SLT-disabled ablation.
+  loss_weight: 0.01
+  projector_dim: 64
+  predictor_dim: 64
+
+training:
+  # Suitable for an overnight/long laptop run, not a conclusive benchmark.
+  total_steps: 20000
+  action_repeat: 1
+  eval_every_steps: 2000
+  save_every_steps: 2000
+  log_every_steps: 100
+  checkpoint_dir: checkpoints/gtx_960m_seed42
+
+  ablation:
+    use_mst: true
+    use_slt: true
