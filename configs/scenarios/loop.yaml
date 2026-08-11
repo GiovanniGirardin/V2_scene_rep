@@ -1,4 +1,4 @@
-inherit: configs/default.yaml
+inherit: ../default.yaml
 
 smarts:
   scenario: "/home/giovanni/SMARTS/scenarios/sumo/loop"

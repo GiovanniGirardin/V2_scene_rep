@@ -71,6 +71,16 @@ class SequentialLatentTransformer(nn.Module):
             nn.Linear(predictor_dim, projector_dim),
         )
 
+    @staticmethod
+    def _causal_mask(seq_len: int, device: torch.device) -> torch.Tensor:
+        """
+        Boolean attention mask where True blocks attention to future positions.
+        """
+        return torch.triu(
+            torch.ones(seq_len, seq_len, dtype=torch.bool, device=device),
+            diagonal=1,
+        )
+
     def forward(
         self,
         latents: torch.Tensor,
@@ -88,7 +98,10 @@ class SequentialLatentTransformer(nn.Module):
         x = torch.cat([latents, actions], dim=-1)
         x = self.input_proj(x)
 
-        x = self.transformer(x)
+        # At t, predictions may depend only on observations/actions through t.
+        # Without this mask, pred[:, t] can directly attend to latents[:, t + 1],
+        # i.e. the loss target, and the auxiliary task leaks future information.
+        x = self.transformer(x, mask=self._causal_mask(x.shape[1], x.device))
 
         pred = self.predictor_head(x)
 
@@ -122,6 +135,7 @@ class SequentialLatentTransformer(nn.Module):
         self,
         latents: torch.Tensor,
         actions: torch.Tensor,
+        target_latents: torch.Tensor | None = None,
     ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
         Convenience wrapper.
@@ -131,9 +145,14 @@ class SequentialLatentTransformer(nn.Module):
 
         actions:
             [B, T, action_dim]
+
+        target_latents:
+            Optional stop-gradient target sequence [B, T, latent_dim].
+            When omitted, ``latents`` is used for backwards compatibility.
         """
         predicted = self.forward(latents, actions)
-        target = latents[:, 1:, :]
+        target_source = latents if target_latents is None else target_latents
+        target = target_source[:, 1:, :]
 
         loss = self.similarity_loss(predicted, target)
 

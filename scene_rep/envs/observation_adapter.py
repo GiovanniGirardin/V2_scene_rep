@@ -19,7 +19,7 @@ class ObservationAdapter:
     The SMARTS path supports two coordinate modes:
         ego: previous ego-relative representation.
         absolute: closer to the original Scene-Rep-Transformer SMARTS adapter,
-                  using [x, y, heading, vx, vy] histories and stable neighbor IDs.
+                  using [x, y, vx, vy, heading] histories and stable neighbor IDs.
     """
 
     def __init__(self, config: Dict[str, Any]):
@@ -143,8 +143,11 @@ class ObservationAdapter:
             vx = float(linear_velocity[0])
             vy = float(linear_velocity[1])
 
+        # Keep one canonical motion layout in every coordinate frame:
+        # [x, y, vx, vy, heading].  The SLT augmentation rotates indices
+        # 2:4 as a velocity vector and index 4 as an angle.
         return np.array(
-            [float(pos[0]), float(pos[1]), heading, vx, vy],
+            [float(pos[0]), float(pos[1]), vx, vy, heading],
             dtype=np.float32,
         )
 

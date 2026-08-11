@@ -188,11 +188,13 @@ class Trainer:
             # --------------------------------------------------------
             # SAC update
             # --------------------------------------------------------
+            updated_online_networks = False
             if step >= self.warmup_steps and self.buffer.can_sample():
                 for _ in range(int(self.sac_cfg["updates_per_step"])):
                     batch_np = self.buffer.sample()
                     batch = batch_to_torch(batch_np, device=self.device)
                     last_metrics = self.agent.update(batch)
+                    updated_online_networks = True
 
             # --------------------------------------------------------
             # SLT auxiliary update
@@ -206,6 +208,13 @@ class Trainer:
                     seq_np = self.sequence_buffer.sample()
                     seq_batch = sequence_batch_to_torch(seq_np, device=self.device)
                     last_slt_metrics = self.agent.update_slt(seq_batch)
+                    updated_online_networks = True
+
+            # The target encoder must follow both SAC and the auxiliary SLT
+            # update. Updating it inside SACAgent.update() made it stale by
+            # one representation-learning step whenever SLT was enabled.
+            if updated_online_networks:
+                self.agent.soft_update_targets()
 
             # --------------------------------------------------------
             # Logging

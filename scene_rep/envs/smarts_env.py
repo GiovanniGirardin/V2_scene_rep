@@ -272,11 +272,16 @@ class SMARTSSceneRepEnv:
         events = getattr(agent_obs, "events", None)
 
         distance_travelled = 0.0
-
         if agent_obs is not None and hasattr(agent_obs, "distance_travelled"):
             distance_travelled = float(agent_obs.distance_travelled)
 
-        progress = max(0.0, distance_travelled - self.prev_distance_travelled)
+        # SMARTS 2.x reports ``distance_travelled`` as a per-observation
+        # quantity in the scenarios used here, rather than a monotonic episode
+        # counter. Differencing it made progress zero on nearly every moving
+        # step. The Euclidean displacement between consecutive ego positions
+        # has unambiguous per-step semantics and is the appropriate dense
+        # progress signal for this wrapper.
+        progress = position_delta
         self.prev_distance_travelled = distance_travelled
 
         success = bool(events.reached_goal) if events is not None else False
