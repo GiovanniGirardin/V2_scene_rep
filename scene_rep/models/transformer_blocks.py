@@ -134,16 +134,31 @@ class CrossAttentionBlock(nn.Module):
         context: torch.Tensor,
         context_key_padding_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        # ``MultiheadAttention`` has undefined behaviour on some PyTorch
+        # versions when every context token is masked.  This occurs naturally
+        # for an absent neighbour (it has no candidate route).  Temporarily
+        # expose its zero-padded context, then restore the residual query.
+        no_context = None
+        safe_padding_mask = context_key_padding_mask
+        if context_key_padding_mask is not None:
+            no_context = context_key_padding_mask.all(dim=1)
+            if no_context.any():
+                safe_padding_mask = context_key_padding_mask.clone()
+                safe_padding_mask[no_context] = False
+
         attn_out, _ = self.attn(
             query,
             context,
             context,
-            key_padding_mask=context_key_padding_mask,
+            key_padding_mask=safe_padding_mask,
             need_weights=False,
         )
 
         x = self.norm1(query + self.dropout(attn_out))
         ff_out = self.ff(x)
         x = self.norm2(x + self.dropout(ff_out))
+
+        if no_context is not None and no_context.any():
+            x = torch.where(no_context[:, None, None], query, x)
 
         return x

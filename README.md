@@ -328,6 +328,16 @@ Le chiavi del file figlio sovrascrivono ricorsivamente quelle del file base. Non
 
 ## Verifica SMARTS
 
+### Test MST e SLT
+
+I test unitari verificano le invarianti strutturali del paper: padding
+mascherato, query dell'aggregation level, residuo dell'output level, causalità
+e allineamento temporale dell'SLT.
+
+```bash
+venv/bin/python -m unittest tests/test_scene_rep_components.py
+```
+
 Prima del training:
 
 ```bash

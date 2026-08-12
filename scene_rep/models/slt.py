@@ -65,11 +65,11 @@ class SequentialLatentTransformer(nn.Module):
             nn.Linear(projector_dim, projector_dim),
         )
 
-        self.predictor = nn.Sequential(
-            nn.Linear(projector_dim, predictor_dim),
-            nn.ReLU(),
-            nn.Linear(predictor_dim, projector_dim),
-        )
+        # The paper specifies an MLP projector Θ and a *linear* predictor P.
+        # Keep predictor_dim in the signature for backwards-compatible config
+        # files; it is deliberately not used by the paper-faithful predictor.
+        del predictor_dim
+        self.predictor = nn.Linear(projector_dim, projector_dim)
 
     @staticmethod
     def _causal_mask(seq_len: int, device: torch.device) -> torch.Tensor:
