@@ -87,3 +87,5 @@ checkpoints/
 !git_checkpoints/
 # graphify-axet
 .graphify/
+
+next_steps.md
